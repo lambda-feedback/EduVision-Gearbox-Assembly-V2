@@ -1,0 +1,65 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      version-bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+      branch:
+        description: 'Branch to release from'
+        required: true
+        type: string
+        default: 'main'
+      seed:
+        description: 'Random seed for reproducible sampling (float in [-1.0, 1.0]). Leave blank to auto-generate.'
+        required: false
+        type: string
+        default: ''
+      request_delay:
+        description: 'Delay (seconds) between dispatching requests'
+        required: false
+        type: string
+        default: '0'
+      max_concurrency:
+        description: 'Max concurrent requests (lower for GPT-backed functions)'
+        required: false
+        type: string
+        default: '5'
+jobs:
+  deploy:
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    uses: lambda-feedback/evaluation-function-workflows/.github/workflows/deploy.yml@main
+    with:
+      template-repository-name: 'lambda-feedback/evaluation-function-boilerplate-python'
+      environment: "production"
+      version-bump: ${{ inputs.version-bump }}
+      branch: ${{ inputs.branch }}
+      run-database-tests: false
+      seed: ${{ inputs.seed }}
+      request_delay: ${{ inputs.request_delay }}
+      max_concurrency: ${{ inputs.max_concurrency }}
+
+    secrets:
+      aws-key-id: ${{ secrets.LAMBDA_CONTAINER_PIPELINE_AWS_ID }}
+      aws-secret-key: ${{ secrets.LAMBDA_CONTAINER_PIPELINE_AWS_SECRET}}
+      function-admin-api-key-staging: ${{ secrets.FUNCTION_ADMIN_API_KEY_STAGING }}
+      function-admin-api-key-production: ${{ secrets.FUNCTION_ADMIN_API_KEY_PRODUCTION }}
+      gcp_credentials: ${{ secrets.GCP_DEPLOY }}
+      TEST_API_ENDPOINT: ${{ secrets.TEST_API_ENDPOINT }}
+      DB_USER: ${{ secrets.DB_USER }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_HOST: ${{ secrets.DB_HOST }}
+      DB_PORT: ${{ secrets.DB_PORT }}
+      DB_NAME: ${{ secrets.DB_NAME }}
+      GCP_DB_CREDS: ${{ secrets.GCP_DB_CREDS }}
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}

@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "evaluation_function"
+version = "0.0.1"
+description = ""
+authors = ["Andreas Pfurtscheller <andreas.pfurtscheller23@ic.ac.uk>"]
+readme = "README.md"
+packages = [{ include = "evaluation_function" }]
+
+[tool.poetry.scripts]
+evaluation_function = "evaluation_function.main:main"
+evaluation_function_dev = "evaluation_function.dev:dev"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+typing_extensions = "^4.12.2"
+lf_toolkit = { git = "https://github.com/lambda-feedback/toolkit-python.git", branch = "main", extras = [
+    "ipc",
+] }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.2"
+flake8 = "^7.1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

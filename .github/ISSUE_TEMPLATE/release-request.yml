@@ -1,0 +1,53 @@
+name: "Release Request"
+description: "Request a deployment by specifying the evaluation function, changes, target commit/branch, and test confirmation."
+title: "Release Request"
+labels:
+  - release
+  - deployment
+assignees: []
+body:
+  - type: textarea
+    id: description_of_changes
+    attributes:
+      label: Description of changes
+      description: "Summarize what is changing and why. Include links to PRs, issues, or changelogs."
+      placeholder: |
+        - What changed:
+        - Why:
+        - Related PRs/Issues: #123, #456
+      render: markdown
+    validations:
+      required: true
+
+  - type: input
+    id: branch_to_deploy
+    attributes:
+      label: Branch to deploy
+      description: |
+        Specify Branch name to deploy.
+      placeholder: "e.g., release/2025-09-29"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: version-bump
+    attributes:
+      label: "🚀 What kind of update is this?"
+      description: "Tell us how significant this change is. This helps us set the correct new version number."
+      options:
+        - "Patch: A small fix for a bug. It won't break anything for existing users. (e.g., 1.2.3 ➔ 1.2.4)"
+        - "Minor: Adds a new feature, but doesn't change how existing ones work. A safe update. (e.g., 1.2.3 ➔ 1.3.0)"
+        - "Major: A big change that alters existing features. Users may need to update their work to adapt. (e.g., 1.2.3 ➔ 2.0.0)"
+      default: 0
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ### ⚡ Click the Link Below to Run the Workflow
+        
+        Clicking the link will take you to the Actions page. You will need to click the **"Run workflow"** button there to start the process.
+        
+        ## [➡️ Go to Workflow Run Page](../actions/workflows/production-deploy.yml)

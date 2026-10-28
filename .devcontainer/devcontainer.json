@@ -1,0 +1,22 @@
+{
+    "name": "Lambda Feedback Evaluation Function",
+    "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+    "postCreateCommand": "python -m pip install --upgrade pip && python -m pip install poetry==1.8.3 && poetry config virtualenvs.in-project true && poetry install",
+    "postStartCommand": "python -m venv .venv >/dev/null 2>&1 || true && . .venv/bin/activate && poetry install",
+    "forwardPorts": [8080],
+    "customizations": {
+      "vscode": {
+        "extensions": [
+          "ms-python.python",
+          "ms-python.vscode-pylance",
+          "GitHub.copilot",
+          "GitHub.copilot-chat"
+        ],
+        "settings": {
+          "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+          "python.terminal.activateEnvironment": true,
+          "python.analysis.extraPaths": ["${workspaceFolder}"]
+        }
+      }
+    }
+  }
