@@ -17,10 +17,21 @@ BACKGROUND = (255, 255, 255)
 # — duże trójkąty podstawy zasłoniłyby części przy sortowaniu po głębokości.
 FLAT = ("base (Z=0)", "tag border", "AprilTag")
 
+# Widoki: (kierunek od środka części do kamery w układzie tagu, Z w górę;
+# kąt widzenia [deg]; odległość kamery / rozmiar złożenia). Ten sam kadr
+# (odległość * tan(kąt / 2) stałe). "top": prosto z góry, prawie bez
+# perspektywy (daleko, wąski kąt), +X w prawo, +Y w górę obrazu.
+VIEWS = {  # widok "top" ma kadr ciaśniejszy (z góry nie widać wysokości)
+    "oblique": ((0.7, -0.6, 0.7), 40.0, 1.6),
+    "top": ((0.0, 0.0, 1.0), 15.0, 3.7),
+}
+
 
 def _look_at(eye, center, up):
     forward = center - eye
     forward /= np.linalg.norm(forward)
+    if np.linalg.norm(np.cross(forward, up)) < 1e-6:
+        up = np.array([0.0, 1.0, 0.0])      # patrzenie wzdłuż Z
     right = np.cross(forward, up)
     right /= np.linalg.norm(right)
     down = np.cross(forward, right)
@@ -42,7 +53,7 @@ def _triangles(mesh):
 
 
 def render(geometries, labels=(), width=1200, height=800, fov_deg=40.0,
-           direction=(0.7, -0.6, 0.7)):
+           direction=(0.7, -0.6, 0.7), distance=1.6):
     """
     geometries: lista {"name", "geometry"} z view_assembly.scene_geometry,
     labels: [(punkt 3D, tekst)]. Zwraca obraz BGR (uint8).
@@ -85,7 +96,7 @@ def render(geometries, labels=(), width=1200, height=800, fov_deg=40.0,
     extent = max(np.linalg.norm(hi - lo), 1.0)
     direction = np.asarray(direction, float)
     direction /= np.linalg.norm(direction)
-    eye = center + direction * extent * 1.6
+    eye = center + direction * extent * distance
     R = _look_at(eye, center, np.array([0.0, 0.0, 1.0]))
     W, H = width * SUPERSAMPLE, height * SUPERSAMPLE
     f = 0.5 * H / np.tan(np.radians(fov_deg) / 2)
@@ -149,12 +160,15 @@ def render(geometries, labels=(), width=1200, height=800, fov_deg=40.0,
     return image
 
 
-def render_assembly(fused, check, detections):
-    """Obraz złożenia z wyników analizy (None, gdy nie ma części 3D)."""
+def render_assembly(fused, check, detections, view="oblique"):
+    """Obraz złożenia z wyników analizy (None, gdy nie ma części 3D).
+    view: klucz VIEWS."""
     if not fused or not fused.get("parts"):
         return None
     import view_assembly
     parts = fused["parts"]
     geometries = view_assembly.scene_geometry(parts, fused, check,
                                               detections)
-    return render(geometries, view_assembly.labels(parts, check))
+    direction, fov_deg, distance = VIEWS[view]
+    return render(geometries, view_assembly.labels(parts, check),
+                  fov_deg=fov_deg, direction=direction, distance=distance)

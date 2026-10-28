@@ -8,7 +8,8 @@ EduVision — ocena montażu przekładni ze zdjęć studenta.
               etapy muszą być zaliczone
     params    opcjonalnie:
                 stage        etap, gdy answer jest pusty
-                images       ["3d", "top_view", "photos", "detections"],
+                images       ["3d", "3d_top", "top_view", "photos",
+                             "detections"],
                              true (domyślne) lub false
                 max_photos   ile zdjęć dla "photos"/"detections" (3)
                 image_mode   "upload" (domyślnie) | "inline" | "none"

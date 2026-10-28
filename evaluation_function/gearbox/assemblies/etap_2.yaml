@@ -1,5 +1,5 @@
 # Etap 2: dwa koła na sąsiednich osiach. Zazębienie dwóch gear_big
-# oznacza automatycznie, że leżą na osiach obok siebie (rozstaw 14.4 mm).
+# oznacza automatycznie, że leżą na osiach obok siebie (rozstaw 15.0 mm).
 # Składnia relacji opisana w etap_1_duza.yaml.
 
 name: "Etap 2 — silnik + driving_gear + 2 koła"

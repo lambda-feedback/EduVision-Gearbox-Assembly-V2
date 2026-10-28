@@ -72,7 +72,7 @@ relations:                   # none = "parts only" stage (works without the tag)
 | Key | Default | Meaning |
 |---|---|---|
 | `stage` | – | stage to check (see above) |
-| `images` | `true` | images in the feedback: list of `3d`, `top_view`, `photos`, `detections`; `true` = `3d` + `top_view` (no tag: `detections`); `false` = none |
+| `images` | `true` | images in the feedback: list of `3d` (3D model, oblique view), `3d_top` (3D model from directly above), `top_view` (schematic top view with axes), `photos`, `detections`; `true` = `3d` + `3d_top` + `top_view` (no tag: `detections`); `false` = none |
 | `max_photos` | `3` | how many photos for `photos` / `detections` |
 | `image_mode` | `upload` | `upload` (storage URL), `inline` (data URI), `none` |
 | `image_folder` | `eduvision` | folder in the image storage |

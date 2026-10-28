@@ -186,7 +186,7 @@ class TestEvaluationFunction(unittest.TestCase):
         stage = os.environ.get("EDUVISION_TEST_STAGE", "etap_pelny")
         result = evaluation_function(response, stage,
                                      {"image_mode": "none"}).to_dict()
-        self.assertIn("Photos:", result["feedback"])
+        self.assertIn("### Photos", result["feedback"])
         expect = os.environ.get("EDUVISION_TEST_EXPECT")
         if expect is not None:
             self.assertEqual(result["is_correct"], expect == "1")

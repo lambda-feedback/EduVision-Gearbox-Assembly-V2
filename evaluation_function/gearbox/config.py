@@ -138,12 +138,12 @@ SHAFT_VISUAL_MARGIN_MM = 10.0     # wysunięcie poza skrajne części na wałku
 # Średnica podziałowa = moduł * liczba zębów; rozstaw osi pary
 # zazębionej = (d1 + d2) / 2.
 GEAR_SECTIONS = {
-    2: [  # gear_big: koło 24 mm (z=0..2) + zębnik 6 mm (z=2..6)
-        {"name": "big", "module": 0.3, "teeth": 78, "z_mm": (0.0, 2.0)},
-        {"name": "pinion", "module": 0.3, "teeth": 18, "z_mm": (2.0, 6.0)},
+    2: [  # gear_big: koło 48 z., 25 mm (z=0..2) + zębnik 12 z., 7 mm (z=2..6)
+        {"name": "big", "module": 0.5, "teeth": 48, "z_mm": (0.0, 2.0)},
+        {"name": "pinion", "module": 0.5, "teeth": 12, "z_mm": (2.0, 6.0)},
     ],
-    4: [  # driving_gear: 6 mm, z=0..6
-        {"name": "main", "module": 0.3, "teeth": 18, "z_mm": (0.0, 6.0)},
+    4: [  # driving_gear: 12 z., 7 mm, z=0..6
+        {"name": "main", "module": 0.5, "teeth": 12, "z_mm": (0.0, 6.0)},
     ],
 }
 # Część napędzająca i części sztywno z nią połączone (PART_MOUNTS).
@@ -153,7 +153,7 @@ DRIVE_SOURCE_CLASS = 5   # engine
 CHECK_PARALLEL_TOL_DEG = 6.0
 CHECK_COAXIAL_TOL_MM = 1.5
 # |rozstaw zmierzony - wymagany|. Dokładność pomiaru położenia kół to
-# ok. ±1 mm (zmierzone odchyłki prawdziwych zazębień: +0.15…+0.81 mm),
+# ok. ±1 mm (zmierzone odchyłki prawdziwych zazębień: -0.31…+0.07 mm),
 # a koła niezazębione różnią się rozstawem o >= 9 mm — 1.5 mm rozdziela
 # je bezpiecznie.
 CHECK_MESH_CENTER_TOL_MM = 1.5

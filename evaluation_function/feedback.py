@@ -38,8 +38,13 @@ STEP_NAMES = {
     "check_all": "stage check",
 }
 
-DEFAULT_IMAGES_3D = ("3d", "top_view")
+DEFAULT_IMAGES_3D = ("3d", "3d_top", "top_view")
 DEFAULT_IMAGES_NO_TAG = ("detections",)
+# Rodzaje obrazów z renderu 3D: {nazwa w params: (widok render.VIEWS, podpis)}
+RENDER_VIEWS = {
+    "3d": ("oblique", "3D model of the recognised assembly"),
+    "3d_top": ("top", "3D model — top view"),
+}
 
 _SPECIAL = re.compile(r"([\\`*_\[\]<>|])")
 
@@ -222,15 +227,15 @@ def image_sources(run, params):
     max_photos = int((params or {}).get("max_photos", 3))
     sources = []
     for kind in wanted_images(params, run["mode"]):
-        if kind == "3d":
+        if kind in RENDER_VIEWS:
+            view, caption = RENDER_VIEWS[kind]
             try:
                 image = render_assembly(run.get("fused"), run.get("check"),
-                                        run.get("detections"))
+                                        run.get("detections"), view=view)
             except Exception:
                 image = None
             if image is not None:
-                sources.append((image, "3D model of the recognised "
-                                       "assembly"))
+                sources.append((image, caption))
         elif kind == "top_view":
             sources.append((output / "fusion_debug" / "top_view.png",
                             "Top view (parts and axes)"))
