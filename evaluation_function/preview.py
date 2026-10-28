@@ -1,24 +1,28 @@
 from typing import Any
-
-from lf_toolkit.preview import Params, Preview, Result
-
-from .inputs import collect_sources
-
+from lf_toolkit.preview import Result, Params, Preview
 
 def preview_function(response: Any, params: Params) -> Result:
     """
-    Podgląd przed wysłaniem: tylko liczba zdjęć (bez pobierania i analizy,
-    ta trwa kilkadziesiąt sekund i odbywa się po wysłaniu).
+    Function used to preview a student response.
+    ---
+    The handler function passes three arguments to preview_function():
+
+    - `response` which are the answers provided by the student.
+    - `params` which are any extra parameters that may be useful,
+        e.g., error tolerances.
+
+    The output of this function is what is returned as the API response
+    and therefore must be JSON-encodable. It must also conform to the
+    response schema.
+
+    Any standard python library may be used, as well as any package
+    available on pip (provided it is added to requirements.txt).
+
+    The way you wish to structure you code (all in this function, or
+    split into many) is entirely up to you.
     """
+
     try:
-        count = len(collect_sources(response))
-        if count == 0:
-            text = "No photos yet."
-        elif count < 4:
-            text = (f"{count} photo(s) — 4-10 photos from different sides "
-                    f"are recommended.")
-        else:
-            text = f"{count} photos ready to submit."
-        return Result(preview=Preview(latex="", sympy="", feedback=text))
+        return Result(preview=Preview(sympy=response))
     except Exception as e:
-        return Result(preview=Preview(latex="", sympy="", feedback=str(e)))
+        return Result(preview=Preview(feedback=str(e)))

@@ -2,19 +2,28 @@ import unittest
 
 from .preview import Params, preview_function
 
-
 class TestPreviewFunction(unittest.TestCase):
+    """
+    TestCase Class used to test the algorithm.
+    ---
+    Tests are used here to check that the algorithm written
+    is working as it should.
 
-    def test_no_photos(self):
-        result = preview_function("", Params())
+    It's best practice to write these tests first to get a
+    kind of 'specification' for how your algorithm should
+    work, and you should run these tests before committing
+    your code to AWS.
+
+    Read the docs on how to use unittest here:
+    https://docs.python.org/3/library/unittest.html
+
+    Use preview_function() to check your algorithm works
+    as it should.
+    """
+
+    def test_preview(self):
+        response, params = "A", Params()
+        result = preview_function(response, params)
+
         self.assertIn("preview", result)
-        self.assertEqual(result["preview"]["feedback"], "No photos yet.")
-
-    def test_counts_photos(self):
-        response = [{"url": f"https://example.com/{i}.jpg"} for i in range(5)]
-        result = preview_function(response, Params())
-        self.assertIn("5 photos", result["preview"]["feedback"])
-
-    def test_few_photos(self):
-        result = preview_function("https://example.com/a.jpg", Params())
-        self.assertIn("recommended", result["preview"]["feedback"])
+        self.assertIsNotNone(result["preview"])

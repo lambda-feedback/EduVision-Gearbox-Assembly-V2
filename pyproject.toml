@@ -11,39 +11,15 @@ evaluation_function = "evaluation_function.main:main"
 evaluation_function_dev = "evaluation_function.dev:dev"
 
 [tool.poetry.dependencies]
-python = ">=3.12,<3.13"
+python = "^3.11"
 typing_extensions = "^4.12.2"
 lf_toolkit = { git = "https://github.com/lambda-feedback/toolkit-python.git", branch = "main", extras = [
     "ipc",
 ] }
-# Analiza GearBox (evaluation_function/gearbox). torch w wersji CPU — serwer
-# nie ma GPU, a wersja CUDA to kilka GB więcej w obrazie ("2.11.0" pasuje
-# też do "2.11.0+cpu" z tego indeksu).
-torch = { version = "2.11.0", source = "pytorch-cpu" }
-torchvision = { version = "0.26.0", source = "pytorch-cpu" }
-ultralytics = ">=8.3"
-opencv-python = ">=4.10"
-open3d = ">=0.18"
-numpy = ">=1.26"
-scipy = ">=1.11"
-pupil-apriltags = ">=1.0.4"
-pyyaml = ">=6.0"
-pillow = ">=10.0"
-requests = ">=2.31"
-
-[[tool.poetry.source]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-priority = "explicit"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
 flake8 = "^7.1.0"
-
-[tool.pytest.ini_options]
-# gearbox/ = kod aplikacji GearBox (test_apriltag.py to nie test pytest).
-testpaths = ["evaluation_function"]
-norecursedirs = ["gearbox", ".venv", ".git"]
 
 [build-system]
 requires = ["poetry-core"]
