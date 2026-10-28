@@ -1,0 +1,30 @@
+# Etap ze złożeniem (są relacje) — wymaga AprilTaga na >= 2 zdjęciach.
+#
+# Relacje:
+#   mesh: [A, B]          zazębienie A z B
+#     sections: [sA, sB]  która część koła się styka:
+#                         gear_big: big (duża tarcza) | pinion (zębnik)
+#                         driving_gear: main
+#                         any = obojętnie
+#   same_axis: [A, B]     A i B na jednej osi (wałku)
+#   adjacent: [A, B]      na jednej osi i obok siebie (odstęp <= 1 mm,
+#                         można zmienić: max_gap_mm: 2.0)
+#   driven: A             A obraca się po włączeniu silnika
+#   not_driven: A         A nie może się obracać
+# Kilka części jednej klasy: gear_big#1, gear_big#2 ... (gear_big = gear_big#1)
+
+name: "Etap 1 — silnik + driving_gear + koło (duża tarcza)"
+description: "driving_gear na silniku napędza DUŻĄ tarczę jedynego koła."
+
+parts:
+  engine: 1
+  driving_gear: 1
+  gear_big: 1
+  long_spacer: 1
+
+relations:
+  - mesh: [driving_gear, gear_big]
+    sections: [main, big]
+    description: "driving_gear zazębiony z dużą tarczą koła"
+  - driven: gear_big
+    description: "koło obraca się po włączeniu silnika"

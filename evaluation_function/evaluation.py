@@ -1,34 +1,66 @@
+"""
+EduVision — ocena montażu przekładni ze zdjęć studenta.
+
+    response  zdjęcia (adresy URL / data URI / base64; formaty: inputs.py)
+    answer    etap do sprawdzenia: nazwa etapu dołączonego do funkcji
+              (np. "etap_pelny") albo definicja YAML/JSON (jak
+              assemblies/*.yaml w aplikacji GearBox); lista = wszystkie
+              etapy muszą być zaliczone
+    params    opcjonalnie:
+                stage        etap, gdy answer jest pusty
+                images       ["3d", "top_view", "photos", "detections"],
+                             true (domyślne) lub false
+                max_photos   ile zdjęć dla "photos"/"detections" (3)
+                image_mode   "upload" (domyślnie) | "inline" | "none"
+                image_folder katalog w magazynie obrazów ("eduvision")
+                debug        true — log analizy w feedbacku
+
+Wynik: is_correct = wszystkie etapy ZALICZONE; feedback (Markdown) — ocena,
+powody, części, połączenia, problemy ze zdjęciami, obrazy.
+"""
+
+import tempfile
+from pathlib import Path
 from typing import Any
-from lf_toolkit.evaluation import Result, Params
+
+from lf_toolkit.evaluation import Params, Result
+
+from . import feedback, inputs, pipeline
+from .attachments import Attacher
+
+
+def _error(text):
+    return Result(is_correct=False,
+                  feedback_items=[("error", f"\n\n{text}\n\n")])
+
 
 def evaluation_function(
     response: Any,
     answer: Any,
     params: Params,
 ) -> Result:
-    """
-    Function used to evaluate a student response.
-    ---
-    The handler function passes three arguments to evaluation_function():
+    params = dict(params or {})
 
-    - `response` which are the answers provided by the student.
-    - `answer` which are the correct answers to compare against.
-    - `params` which are any extra parameters that may be useful,
-        e.g., error tolerances.
+    try:
+        stages = inputs.stage_definitions(answer, params)
+    except ValueError as exc:
+        return _error(f"Task configuration error: {feedback._e(exc)}")
 
-    The output of this function is what is returned as the API response
-    and therefore must be JSON-encodable. It must also conform to the
-    response schema.
+    try:
+        images, problems = inputs.load_images(response)
+    except inputs.SubmissionError as exc:
+        return _error(feedback._e(exc))
 
-    Any standard python library may be used, as well as any package
-    available on pip (provided it is added to requirements.txt).
-
-    The way you wish to structure you code (all in this function, or
-    split into many) is entirely up to you. All that matters are the
-    return types and that evaluation_function() is the main function used
-    to output the evaluation response.
-    """
-
-    return Result(
-        is_correct=response == answer
-    )
+    with tempfile.TemporaryDirectory(prefix="eduvision_stages_") as folder:
+        stage_paths = []
+        for index, (name, text) in enumerate(stages):
+            path = Path(folder) / f"{index:02d}_{name}"
+            path.write_text(text, encoding="utf-8")
+            stage_paths.append(path)
+        # Feedback (w tym obrazy z katalogu roboczego) przed zwolnieniem
+        # katalogu dla następnego zgłoszenia.
+        is_correct, items = pipeline.run(
+            images, stage_paths,
+            finish=lambda run: feedback.build(run, problems,
+                                              Attacher(params), params))
+    return Result(is_correct=is_correct, feedback_items=items)

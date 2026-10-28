@@ -1,0 +1,2 @@
+Copied by tools/sync_gearbox.py from the GearBox application.
+Do not edit here — change the application and re-run the script.
