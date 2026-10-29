@@ -51,7 +51,7 @@ def evaluation_function(
     try:
         images, problems = inputs.load_images(response)
     except inputs.SubmissionError as exc:
-        return _error("??????")
+        return _error(feedback._e(exc))
 
     items = [
         ("test1", "test2")
