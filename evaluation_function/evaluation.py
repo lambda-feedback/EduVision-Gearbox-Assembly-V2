@@ -41,22 +41,22 @@ def evaluation_function(
     params: Params,
 ) -> Result:
 
-        params = dict(params or {})
+    params = dict(params or {})
 
-        try:
-            stages = inputs.stage_definitions(answer, params)
-        except ValueError as exc:
-            return _error(f"Task configuration error: {feedback._e(exc)}")
+    try:
+        stages = inputs.stage_definitions(answer, params)
+    except ValueError as exc:
+        return _error(f"Task configuration error: {feedback._e(exc)}")
 
-        try:
-            images, problems = inputs.load_images(response)
-        except inputs.SubmissionError as exc:
-            return _error(feedback._e(exc))
+    try:
+        images, problems = inputs.load_images(response)
+    except inputs.SubmissionError as exc:
+        return _error(feedback._e(exc))
 
-        items = [
-            ("test1", "test2")
-        ]
-        return Result(is_correct=True, feedback_items=items)
+    items = [
+        ("test1", "test2")
+    ]
+    return Result(is_correct=True, feedback_items=items)
 
     # params = dict(params or {})
     #
