@@ -83,9 +83,7 @@ def evaluation_function(
         #    finish=lambda run: feedback.build(run, problems,
         #                                      Attacher(params), params))
 
-    items = [
-        ["test1", "test2"]
-    ]
+
     is_correct = False
 
-    return Result(is_correct=is_correct, feedback_items=items)
+    return Result(is_correct=is_correct, feedback_items=params)
