@@ -53,48 +53,11 @@ def evaluation_function(
     except inputs.SubmissionError as exc:
         return _error(feedback._e(exc))
 
-    with tempfile.TemporaryDirectory(prefix="eduvision_stages_") as folder:
-        stage_paths = []
-        for index, (name, text) in enumerate(stages):
-            path = Path(folder) / f"{index:02d}_{name}"
-            path.write_text(text, encoding="utf-8")
-            stage_paths.append(path)
-
-        # is_correct, items = pipeline.run(
-        #     images, stage_paths,
-        #     finish=lambda run: feedback.build(run, problems,
-        #                                       Attacher(params), params))
-
-        import traceback
-        def make_feedback(run_result):
-            try:
-                is_correct, items = feedback.build(
-                    run_result, problems, Attacher(params), params
-                )
-                debug = (
-                    "### DEBUG\n\n"
-                    f"- is_correct: `{is_correct}`\n"
-                    f"- items type: `{type(items).__name__}`\n"
-                    f"- items count: `{len(items)}`\n"
-                    f"- items: `{repr(items)[:4000]}`"
-                )
-                return False, [("debug", debug)]
-
-            except Exception:
-                error = traceback.format_exc()
-                return False, [("debug_error", f"### BŁĄD FEEDBACK.BUILD\n\n{error[-5000:]}")]
-
-        try:
-            is_correct, items = pipeline.run(
-                images, stage_paths, finish=make_feedback
-            )
-        except Exception:
-            error = traceback.format_exc()
-            return Result(
-                is_correct=False,
-                feedback_items=[
-                    ("pipeline_error", f"### BŁĄD PIPELINE\n\n{error[-5000:]}")
-                ],
-            )
-
-    return Result(is_correct=is_correct, feedback_items=items)
+    import random
+    return Result(
+        is_correct=True,
+        feedback_items=[
+            ("debug", "RUNTIME TEST OK"),
+            ("random", f"Test nr {random.randint(1, 1000)}")
+        ]
+    )
