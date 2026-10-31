@@ -55,7 +55,7 @@ ENV EDUVISION_WORK_DIR=/tmp/eduvision \
 ENV FUNCTION_COMMAND="python" \
     FUNCTION_ARGS="-m,evaluation_function.main" \
     FUNCTION_INTERFACE="rpc" \
-    FUNCTION_RPC_TRANSPORT="stdio" \
+    FUNCTION_RPC_TRANSPORT="ipc" \
     FUNCTION_WORKER_SEND_TIMEOUT="90s"
 
 # Enable temporarily when investigating cold starts.
