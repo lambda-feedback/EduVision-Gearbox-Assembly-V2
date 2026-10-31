@@ -71,16 +71,25 @@ def evaluation_function(
                 is_correct, items = feedback.build(
                     run_result, problems, Attacher(params), params
                 )
-                debug_info = (
-                    "### DEBUG PIPELINE\n\n"
-                    f"- **Steps:** `{run_result.get('steps')}`\n"
-                    f"- **Failed step:** `{run_result.get('failed_step')}`\n"
-                    f"- **Executor:** `{run_result.get('executor')}`\n"
-                    f"- **Czas analizy:** `{run_result.get('seconds')}`\n"
-                    f"- **is_correct:** `{is_correct}`\n"
-                    f"- **Liczba sekcji feedbacku:** `{len(items)}`\n"
-                )
-                items.insert(0, ("debug", debug_info))
+                # debug_info = (
+                #     "### DEBUG PIPELINE\n\n"
+                #     f"- **Steps:** `{run_result.get('steps')}`\n"
+                #     f"- **Failed step:** `{run_result.get('failed_step')}`\n"
+                #     f"- **Executor:** `{run_result.get('executor')}`\n"
+                #     f"- **Czas analizy:** `{run_result.get('seconds')}`\n"
+                #     f"- **is_correct:** `{is_correct}`\n"
+                #     f"- **Liczba sekcji feedbacku:** `{len(items)}`\n"
+                # )
+                # items.insert(0, ("debug", debug_info))
+                items.insert(0, (
+                    "debug",
+                    f"### DEBUG\n\n"
+                    f"- is_correct: `{is_correct}`\n"
+                    f"- items type: `{type(items).__name__}`\n"
+                    f"- items count: `{len(items)}`\n"
+                    f"- items: `{repr(items)[:4000]}`"
+                ))
+
                 return is_correct, items
             except Exception:
                 error = traceback.format_exc()
