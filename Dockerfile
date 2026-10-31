@@ -1,6 +1,7 @@
 FROM ghcr.io/lambda-feedback/evaluation-function-base/python:3.12 AS builder
 
-RUN pip install poetry==1.8.3
+# Must match the Poetry major version that generated poetry.lock
+RUN pip install "poetry>=2,<3"
 
 ENV POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_IN_PROJECT=1 \
@@ -19,11 +20,12 @@ ENV VIRTUAL_ENV=/app/.venv \
 
 COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 
-# Precompile python files for faster startup
-RUN python -m compileall -q .
-
 # Copy the evaluation function to the app directory
 COPY evaluation_function ./evaluation_function
+
+# Precompile function code too: the deployed filesystem is read-only, so
+# anything not compiled here would be recompiled on every cold start.
+RUN python -m compileall -q .
 
 # Command to start the evaluation function with
 ENV FUNCTION_COMMAND="python"
@@ -31,7 +33,14 @@ ENV FUNCTION_COMMAND="python"
 # Args to start the evaluation function with
 ENV FUNCTION_ARGS="-m,evaluation_function.main"
 
-# The transport to use for the RPC server
-ENV FUNCTION_RPC_TRANSPORT="ipc"
+# Stdio avoids waiting for Python imports before the Lambda init response.
+ENV FUNCTION_INTERFACE="rpc"
+ENV FUNCTION_RPC_TRANSPORT="stdio"
+
+# Torch and the analysis pipeline can take longer than shimmy's 30 s default.
+ENV FUNCTION_WORKER_SEND_TIMEOUT="90s"
+
+# TEMPORARY: log per-module import times to stderr while measuring cold starts.
+ENV PYTHONPROFILEIMPORTTIME=1
 
 ENV LOG_LEVEL="debug"

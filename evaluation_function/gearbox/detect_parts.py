@@ -69,6 +69,14 @@ CLASS_COLORS = {
 
 BORDER_MARGIN_PX = 2
 
+_MODEL_CACHE = {}
+
+
+def _load_model(model_path):
+    if model_path not in _MODEL_CACHE:
+        _MODEL_CACHE[model_path] = YOLO(str(model_path))
+    return _MODEL_CACHE[model_path]
+
 
 # --------------------------------------------------------------------------
 # Maska przycięta do ramki
@@ -531,7 +539,7 @@ def main():
     if not images:
         sys.exit(f"ERROR: No images in {source_dir}")
 
-    model = YOLO(str(MODEL_PATH))
+    model = _load_model(MODEL_PATH)
     mismatches = [
         f"ID {cid}: oczekiwano {name!r}, model ma {model.names.get(cid)!r}"
         for cid, name in CLASS_NAMES.items()

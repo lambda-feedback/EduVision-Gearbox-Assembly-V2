@@ -109,7 +109,7 @@ def _load_modules():
             setting == "auto" and not processes_available()):
         executor = InlineExecutor
     else:
-        # "spawn" także na Linuksie: fork procesu z wątkami (serwer IPC,
+        # "spawn" także na Linuksie: fork procesu z wątkami (serwer RPC,
         # torch) potrafi się zawiesić; spawn = jak w aplikacji na Windows.
         executor = partial(ProcessPoolExecutor,
                            mp_context=multiprocessing.get_context("spawn"))
