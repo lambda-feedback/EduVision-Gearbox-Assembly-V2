@@ -53,13 +53,27 @@ def evaluation_function(
     except inputs.SubmissionError as exc:
         return _error(feedback._e(exc))
 
-    return Result(
-        is_correct=True,
-        feedback_items=[
-            (
-                "debug",
-                f"Loaded images: {len(images)}; "
-                f"Problems: {problems}"
-            ) 
-        ]
-    )
+    with tempfile.TemporaryDirectory(
+        prefix="eduvision_stages_"
+    ) as folder:
+
+        stage_paths = []
+
+        for index, (name, text) in enumerate(stages):
+            path = Path(folder) / f"{index:02d}_{name}"
+            path.write_text(text, encoding="utf-8")
+            stage_paths.append(path)
+
+        run_result = pipeline.run(images, stage_paths)
+
+        debug = (
+            f"Steps: {run_result.get('steps')}\n"
+            f"Failed step: {run_result.get('failed_step')}\n"
+            f"Mode: {run_result.get('mode')}"
+        )
+
+        return Result(
+            is_correct=False,
+            feedback_items=[("debug", debug)]
+        )
+
