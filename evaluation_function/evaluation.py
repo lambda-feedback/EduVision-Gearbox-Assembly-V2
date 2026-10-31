@@ -84,7 +84,7 @@ def evaluation_function(
         #                                      Attacher(params), params))
 
     items = [
-        ("aaaa", "bbbb")
+        ["test1", "test2"]
     ]
     is_correct = False
 
