@@ -65,27 +65,61 @@ def evaluation_function(
         #     finish=lambda run: feedback.build(run, problems,
         #                                       Attacher(params), params))
 
+        import traceback
+        def make_feedback(run_result):
+            try:
+                is_correct, items = feedback.build(
+                    run_result, problems, Attacher(params), params
+                )
+                debug_info = (
+                    "### DEBUG PIPELINE\n\n"
+                    f"- **Steps:** `{run_result.get('steps')}`\n"
+                    f"- **Failed step:** `{run_result.get('failed_step')}`\n"
+                    f"- **Executor:** `{run_result.get('executor')}`\n"
+                    f"- **Czas analizy:** `{run_result.get('seconds')}`\n"
+                    f"- **is_correct:** `{is_correct}`\n"
+                    f"- **Liczba sekcji feedbacku:** `{len(items)}`\n"
+                )
+                items.insert(0, ("debug", debug_info))
+                return is_correct, items
+            except Exception:
+                error = traceback.format_exc()
+                return False, [("debug_error", f"### BŁĄD FEEDBACK.BUILD\n\n{error[-5000:]}")]
+
+        try:
+            is_correct, items = pipeline.run(
+                images, stage_paths, finish=make_feedback
+            )
+        except Exception:
+            error = traceback.format_exc()
+            return Result(
+                is_correct=False,
+                feedback_items=[
+                    ("pipeline_error", f"### BŁĄD PIPELINE\n\n{error[-5000:]}")
+                ],
+            )
+
 
     ##############################################################################################
 
-    stage = params.get("stage", "Nie określono etapu")
-
-    is_correct = False
-    items = [
-        (
-            "verdict",
-            f"""
-    ### Wynik analizy
-
-    - **Sprawdzany etap:** {stage}
-    - **Komponent:** Servo
-    - **Pewność wykrycia:** 95%
-
-    Komponent został poprawnie rozpoznany.
-
-    **Dobra robota!**
-    """
-        )
-    ]
+    # stage = params.get("stage", "Nie określono etapu")
+    #
+    # is_correct = False
+    # items = [
+    #     (
+    #         "verdict",
+    #         f"""
+    # ### Wynik analizy
+    #
+    # - **Sprawdzany etap:** {stage}
+    # - **Komponent:** Servo
+    # - **Pewność wykrycia:** 95%
+    #
+    # Komponent został poprawnie rozpoznany.
+    #
+    # **Dobra robota!**
+    # """
+    #     )
+    # ]
 
     return Result(is_correct=is_correct, feedback_items=items)
