@@ -81,16 +81,15 @@ def evaluation_function(
                 #     f"- **Liczba sekcji feedbacku:** `{len(items)}`\n"
                 # )
                 # items.insert(0, ("debug", debug_info))
-                items.insert(0, (
-                    "debug",
-                    f"### DEBUG\n\n"
+                debug = (
+                    "### DEBUG\n\n"
                     f"- is_correct: `{is_correct}`\n"
                     f"- items type: `{type(items).__name__}`\n"
                     f"- items count: `{len(items)}`\n"
                     f"- items: `{repr(items)[:4000]}`"
-                ))
+                )
+                return False, [("debug", debug)]
 
-                return is_correct, items
             except Exception:
                 error = traceback.format_exc()
                 return False, [("debug_error", f"### BŁĄD FEEDBACK.BUILD\n\n{error[-5000:]}")]
