@@ -60,52 +60,52 @@ def evaluation_function(
             path.write_text(text, encoding="utf-8")
             stage_paths.append(path)
 
-        # is_correct, items = pipeline.run(
-        #     images, stage_paths,
-        #     finish=lambda run: feedback.build(run, problems,
-        #                                       Attacher(params), params))
+        is_correct, items = pipeline.run(
+            images, stage_paths,
+            finish=lambda run: feedback.build(run, problems,
+                                              Attacher(params), params))
 
-        import traceback
-        def make_feedback(run_result):
-            try:
-                is_correct, items = feedback.build(
-                    run_result, problems, Attacher(params), params
-                )
-                # debug_info = (
-                #     "### DEBUG PIPELINE\n\n"
-                #     f"- **Steps:** `{run_result.get('steps')}`\n"
-                #     f"- **Failed step:** `{run_result.get('failed_step')}`\n"
-                #     f"- **Executor:** `{run_result.get('executor')}`\n"
-                #     f"- **Czas analizy:** `{run_result.get('seconds')}`\n"
-                #     f"- **is_correct:** `{is_correct}`\n"
-                #     f"- **Liczba sekcji feedbacku:** `{len(items)}`\n"
-                # )
-                # items.insert(0, ("debug", debug_info))
-                debug = (
-                    "### DEBUG\n\n"
-                    f"- is_correct: `{is_correct}`\n"
-                    f"- items type: `{type(items).__name__}`\n"
-                    f"- items count: `{len(items)}`\n"
-                    f"- items: `{repr(items)[:4000]}`"
-                )
-                return False, [("debug", debug)]
-
-            except Exception:
-                error = traceback.format_exc()
-                return False, [("debug_error", f"### BŁĄD FEEDBACK.BUILD\n\n{error[-5000:]}")]
-
-        try:
-            is_correct, items = pipeline.run(
-                images, stage_paths, finish=make_feedback
-            )
-        except Exception:
-            error = traceback.format_exc()
-            return Result(
-                is_correct=False,
-                feedback_items=[
-                    ("pipeline_error", f"### BŁĄD PIPELINE\n\n{error[-5000:]}")
-                ],
-            )
+        # import traceback
+        # def make_feedback(run_result):
+        #     try:
+        #         is_correct, items = feedback.build(
+        #             run_result, problems, Attacher(params), params
+        #         )
+        #         # debug_info = (
+        #         #     "### DEBUG PIPELINE\n\n"
+        #         #     f"- **Steps:** `{run_result.get('steps')}`\n"
+        #         #     f"- **Failed step:** `{run_result.get('failed_step')}`\n"
+        #         #     f"- **Executor:** `{run_result.get('executor')}`\n"
+        #         #     f"- **Czas analizy:** `{run_result.get('seconds')}`\n"
+        #         #     f"- **is_correct:** `{is_correct}`\n"
+        #         #     f"- **Liczba sekcji feedbacku:** `{len(items)}`\n"
+        #         # )
+        #         # items.insert(0, ("debug", debug_info))
+        #         debug = (
+        #             "### DEBUG\n\n"
+        #             f"- is_correct: `{is_correct}`\n"
+        #             f"- items type: `{type(items).__name__}`\n"
+        #             f"- items count: `{len(items)}`\n"
+        #             f"- items: `{repr(items)[:4000]}`"
+        #         )
+        #         return False, [("debug", debug)]
+        #
+        #     except Exception:
+        #         error = traceback.format_exc()
+        #         return False, [("debug_error", f"### BŁĄD FEEDBACK.BUILD\n\n{error[-5000:]}")]
+        #
+        # try:
+        #     is_correct, items = pipeline.run(
+        #         images, stage_paths, finish=make_feedback
+        #     )
+        # except Exception:
+        #     error = traceback.format_exc()
+        #     return Result(
+        #         is_correct=False,
+        #         feedback_items=[
+        #             ("pipeline_error", f"### BŁĄD PIPELINE\n\n{error[-5000:]}")
+        #         ],
+        #     )
 
 
     ##############################################################################################
