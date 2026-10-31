@@ -16,11 +16,17 @@ typing_extensions = "^4.12.2"
 lf_toolkit = { git = "https://github.com/lambda-feedback/toolkit-python.git", branch = "main", extras = [
     "ipc",
 ] }
-# Analiza GearBox (evaluation_function/gearbox). torch w wersji CPU — serwer
-# nie ma GPU, a wersja CUDA to kilka GB więcej w obrazie ("2.11.0" pasuje
-# też do "2.11.0+cpu" z tego indeksu).
-torch = { version = "2.11.0", source = "pytorch-cpu" }
-torchvision = { version = "0.26.0", source = "pytorch-cpu" }
+# Lambda has no GPU, so use CPU builds there; the CPU index has no macOS
+# wheels, so other platforms use PyPI.
+torch = [
+    { version = ">=2.7", source = "pytorch-cpu", markers = "sys_platform == 'linux'" },
+    { version = ">=2.7", markers = "sys_platform != 'linux'" },
+]
+# Keep torchvision new enough to pin a compatible torch version.
+torchvision = [
+    { version = ">=0.22.1", source = "pytorch-cpu", markers = "sys_platform == 'linux'" },
+    { version = ">=0.22.1", markers = "sys_platform != 'linux'" },
+]
 ultralytics = ">=8.3"
 opencv-python = ">=4.10"
 open3d = ">=0.18"
