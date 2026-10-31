@@ -1,17 +1,17 @@
 """
-Feedback dla studenta (Markdown) z wyników analizy GearBox.
+Student feedback (Markdown) from GearBox analysis results.
 
-Elementy (tag, markdown) w kolejności wyświetlania:
-    verdict  wynik każdego etapu: ocena, powody, liczby części, relacje
-    photos   zdjęcia: odrzucone (dlaczego), ostrzeżenia jakości, pokrycie
-             kątów, problemy z pobraniem
-    parts    znalezione części i napęd (co się obraca)
-    images   obrazy (render 3D, widok z góry, zdjęcia) — wg params["images"]
-    error    analiza przerwana (opcjonalnie log: params["debug"])
+Elements (tag, markdown), in display order:
+    verdict  result of each stage: status, reasons, part counts, relationships
+    photos   photos: rejected (why), quality warnings, viewpoint coverage,
+             download problems
+    parts    detected parts and drivetrain (what rotates)
+    images   images (3D render, top view, photos) - according to params["images"]
+    error    analysis interrupted (optional log: params["debug"])
 
-lf_toolkit łączy elementy przez "<br>" i pokazuje tylko treść (tag nie
-jest wyświetlany) — każdy element zaczyna się i kończy pustą linią, żeby
-Markdown (nagłówki, listy) działał po złączeniu.
+lf_toolkit joins elements using "<br>" and displays only the content (the tag
+is not displayed). Each element starts and ends with a blank line so that
+Markdown (headings, lists) works after joining.
 """
 
 import re
@@ -20,11 +20,11 @@ PASSED, FAILED, UNKNOWN = "PASSED", "FAILED", "CANNOT ASSESS"
 OK, ERROR = "OK", "ERROR"
 
 VERDICT_LABEL = {
-    PASSED: "✅ PASSED",
-    FAILED: "❌ FAILED",
-    UNKNOWN: "⚠️ CANNOT ASSESS",
+    PASSED: "[OK] PASSED",
+    FAILED: "[ERROR] FAILED",
+    UNKNOWN: "[WARNING] CANNOT ASSESS",
 }
-RESULT_MARK = {OK: "✅", ERROR: "❌"}
+RESULT_MARK = {OK: "[OK]", ERROR: "[ERROR]"}
 
 STEP_NAMES = {
     "tag": "image filter and AprilTag detection",
@@ -40,17 +40,17 @@ STEP_NAMES = {
 
 DEFAULT_IMAGES_3D = ("3d", "3d_top", "top_view")
 DEFAULT_IMAGES_NO_TAG = ("detections",)
-# Rodzaje obrazów z renderu 3D: {nazwa w params: (widok render.VIEWS, podpis)}
+# 3D render image types: {name in params: (render.VIEWS view, caption)}
 RENDER_VIEWS = {
     "3d": ("oblique", "3D model of the recognised assembly"),
-    "3d_top": ("top", "3D model — top view"),
+    "3d_top": ("top", "3D model - top view"),
 }
 
 _SPECIAL = re.compile(r"([\\`*_\[\]<>|])")
 
 
 def _e(value):
-    """Tekst bez formatowania Markdown (np. "_" w nazwach, "<" w opisach)."""
+    """Text without Markdown formatting (e.g. "_" in names, "<" in descriptions)."""
     return _SPECIAL.sub(r"\\\1", str(value))
 
 
@@ -67,10 +67,10 @@ def _ul(items):
 
 
 def _mark(result):
-    return RESULT_MARK.get(result, "⚠️")
+    return RESULT_MARK.get(result, "[WARNING]")
 
 
-# ------------------------------------------------------------------ etapy
+# ------------------------------------------------------------------ stages
 
 def _relation_line(rel):
     text = _e(rel.get("description") or f"{rel['type']}: "
@@ -96,8 +96,8 @@ def _count_line(count):
 
 
 def stage_markdown(stage):
-    label = VERDICT_LABEL.get(stage["verdict"], f"⚠️ {stage['verdict']}")
-    lines = [f"### {label} — {_e(stage['name'])}"]
+    label = VERDICT_LABEL.get(stage["verdict"], f"[WARNING] {stage['verdict']}")
+    lines = [f"### {label} - {_e(stage['name'])}"]
     if stage.get("description"):
         lines += ["", f"*{_e(stage['description'])}*"]
     if stage["verdict"] != PASSED and stage.get("reasons"):
@@ -114,7 +114,7 @@ def stage_markdown(stage):
     return _block(*lines)
 
 
-# ---------------------------------------------------------------- zdjęcia
+# ---------------------------------------------------------------- photos
 
 def photos_markdown(run, download_problems):
     tag_report = run.get("apriltag") or []
@@ -130,7 +130,7 @@ def photos_markdown(run, download_problems):
                       "parts cannot be assessed without the tag. Make sure "
                       "the whole tag is visible and sharp."]
     elif len(accepted) == 1:
-        lines += ["", "Only one photo shows the AprilTag — at least two "
+        lines += ["", "Only one photo shows the AprilTag - at least two "
                       "(better 5 or more, from different sides) are needed "
                       "for the 3D analysis."]
 
@@ -174,7 +174,7 @@ def _reasons(entry):
     return [r for r in reasons if r and r != "OK"] or ["rejected"]
 
 
-# ------------------------------------------------------------------ części
+# ------------------------------------------------------------------ parts
 
 def parts_markdown(run):
     check = run.get("check") or {}
@@ -205,7 +205,7 @@ def parts_markdown(run):
     return _block(*lines)
 
 
-# ------------------------------------------------------------------ obrazy
+# ------------------------------------------------------------------ images
 
 def wanted_images(params, mode):
     value = (params or {}).get("images")
@@ -220,7 +220,7 @@ def wanted_images(params, mode):
 
 
 def image_sources(run, params):
-    """[(źródło: ścieżka lub obraz, podpis)] wg params["images"]."""
+    """[(source: path or image, caption)] according to params["images"]."""
     from .render import render_assembly
 
     output = run["output_dir"]
@@ -251,7 +251,7 @@ def image_sources(run, params):
     return sources
 
 
-# ------------------------------------------------------------------- całość
+# ------------------------------------------------------------------- full report
 
 def _log_block(run):
     log = run.get("log", "")[-6000:].replace("```", "'''")
@@ -269,7 +269,7 @@ def build(run, download_problems, attacher, params):
             items.append(("verdict", stage_markdown(stage)))
     else:
         items.append(("verdict", _block(
-            "### ⚠️ CANNOT ASSESS", "", "The analysis did not finish.")))
+            "### [WARNING] CANNOT ASSESS", "", "The analysis did not finish.")))
 
     items.append(("photos", photos_markdown(run, download_problems)))
     if check:
