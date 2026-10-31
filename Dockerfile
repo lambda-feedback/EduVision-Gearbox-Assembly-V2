@@ -55,10 +55,10 @@ ENV EDUVISION_WORK_DIR=/tmp/eduvision \
 # Function startup configuration.
 ENV FUNCTION_COMMAND="python" \
     FUNCTION_ARGS="-m,evaluation_function.main" \
-    FUNCTION_INTERFACE="rpc" \
-    FUNCTION_RPC_TRANSPORT="ipc" \
-    FUNCTION_MAX_PROCS="1" \
-    FUNCTION_WORKER_SEND_TIMEOUT="90s"
+    FUNCTION_INTERFACE="file" \
+    FUNCTION_MAX_PROCS="1"
+
+
 
 # Enable temporarily when investigating cold starts.
 # Remove or override in production after profiling.
