@@ -5,7 +5,7 @@ from .evaluation import evaluation_function
 from .preview import preview_function
 
 def main():
-    """Run the IPC server with the evaluation and preview functions.
+    """Run the RPC server with the evaluation and preview functions.
     """
     server = create_server()
 
