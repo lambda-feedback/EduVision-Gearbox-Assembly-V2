@@ -1,0 +1,14 @@
+# Etap "tylko elementy": brak sekcji relations = sprawdzana jest tylko
+# liczba sztuk. Działa także bez AprilTaga (spis z samych detekcji).
+#
+# Dostępne klasy: short_spacer, long_spacer, gear_big, driving_gear, engine
+# Liczba sztuk musi się zgadzać DOKŁADNIE (części innych klas = nadmiar).
+# Aby dopuścić dodatkowe części, dopisz:  allow_extra: true
+
+name: "Elementy — 2 koła i dwa spacery"
+description: "Na zdjęciach mają być tylko te elementy, złożenie nieistotne."
+
+parts:
+  gear_big: 2
+  short_spacer: 1
+  long_spacer: 1
