@@ -1,0 +1,47 @@
+# Complete assembly - 5 gears on two shafts, 2 spacers (input_test set).
+# Chain: driving_gear -> gear 1 -> gear 2 -> gear 3 -> gear 4 -> gear 5,
+# each subsequent gear is driven by the pinion of the previous gear
+# (meshing with the large gear section).
+# Relation syntax is described in etap_1_duza.yaml.
+#
+# Shaft A: gear 1, gear 3, gear 5, short_spacer
+# Shaft B: gear 2, gear 4, long_spacer
+
+name: "Complete assembly - 5 gears"
+description: "driving_gear -> gear 1 -> 2 -> 3 -> 4 -> 5, alternating between two shafts."
+
+parts:
+  engine: 1
+  driving_gear: 1
+  gear_big: 5
+  short_spacer: 1
+  long_spacer: 1
+
+relations:
+  - mesh: [driving_gear, gear_big#1]
+    sections: [main, big]
+    description: "driving_gear -> large gear section of gear 1"
+  - mesh: [gear_big#1, gear_big#2]
+    sections: [pinion, big]
+    description: "pinion of gear 1 -> large gear section of gear 2"
+  - mesh: [gear_big#2, gear_big#3]
+    sections: [pinion, big]
+    description: "pinion of gear 2 -> large gear section of gear 3"
+  - mesh: [gear_big#3, gear_big#4]
+    sections: [pinion, big]
+    description: "pinion of gear 3 -> large gear section of gear 4"
+  - mesh: [gear_big#4, gear_big#5]
+    sections: [pinion, big]
+    description: "pinion of gear 4 -> large gear section of gear 5"
+  - adjacent: [gear_big#1, gear_big#3]
+    description: "gears 1 and 3 are next to each other on shaft A"
+  - adjacent: [gear_big#3, gear_big#5]
+    description: "gears 3 and 5 are next to each other on shaft A"
+  - adjacent: [gear_big#2, gear_big#4]
+    description: "gears 2 and 4 are next to each other on shaft B"
+  - same_axis: [gear_big#1, short_spacer]
+    description: "short_spacer is on shaft A"
+  - same_axis: [gear_big#2, long_spacer]
+    description: "long_spacer is on shaft B"
+  - driven: gear_big#5
+    description: "the last gear in the chain rotates"

@@ -1,17 +1,17 @@
 """
-Student feedback (Markdown) from GearBox analysis.
+Feedback dla studenta (Markdown) z wyników analizy GearBox.
 
-Elements (tag, Markdown) in display order:
-    verdict  result of each stage: status, reasons, part counts, connections
-    photos   photos: rejected (reasons), quality warnings, viewpoint coverage,
-             download issues
-    parts    detected parts and drivetrain (what rotates)
-    images   images (3D render, top view, photos) according to params["images"]
-    error    analysis interrupted (optional log: params["debug"])
+Elementy (tag, markdown) w kolejności wyświetlania:
+    verdict  wynik każdego etapu: ocena, powody, liczby części, relacje
+    photos   zdjęcia: odrzucone (dlaczego), ostrzeżenia jakości, pokrycie
+             kątów, problemy z pobraniem
+    parts    znalezione części i napęd (co się obraca)
+    images   obrazy (render 3D, widok z góry, zdjęcia) — wg params["images"]
+    error    analiza przerwana (opcjonalnie log: params["debug"])
 
-lf_toolkit combines elements using "<br>" and displays only the content (the tag is not
-displayed) - each element starts and ends with a blank line so that
-Markdown (headings, lists) works after concatenation.
+lf_toolkit łączy elementy przez "<br>" i pokazuje tylko treść (tag nie
+jest wyświetlany) — każdy element zaczyna się i kończy pustą linią, żeby
+Markdown (nagłówki, listy) działał po złączeniu.
 """
 
 import re
@@ -40,7 +40,7 @@ STEP_NAMES = {
 
 DEFAULT_IMAGES_3D = ("3d", "3d_top", "top_view")
 DEFAULT_IMAGES_NO_TAG = ("detections",)
-# Image types for the 3D render: {params name: (render.VIEWS view, caption)}
+# Rodzaje obrazów z renderu 3D: {nazwa w params: (widok render.VIEWS, podpis)}
 RENDER_VIEWS = {
     "3d": ("oblique", "3D model of the recognised assembly"),
     "3d_top": ("top", "3D model — top view"),
@@ -50,7 +50,7 @@ _SPECIAL = re.compile(r"([\\`*_\[\]<>|])")
 
 
 def _e(value):
-    """Escape text without Markdown formatting (e.g. "_" in names, "<" in descriptions)."""
+    """Tekst bez formatowania Markdown (np. "_" w nazwach, "<" w opisach)."""
     return _SPECIAL.sub(r"\\\1", str(value))
 
 
@@ -70,7 +70,7 @@ def _mark(result):
     return RESULT_MARK.get(result, "⚠️")
 
 
-# ------------------------------------------------------------------ stages
+# ------------------------------------------------------------------ etapy
 
 def _relation_line(rel):
     text = _e(rel.get("description") or f"{rel['type']}: "
@@ -114,7 +114,7 @@ def stage_markdown(stage):
     return _block(*lines)
 
 
-# ---------------------------------------------------------------- photos
+# ---------------------------------------------------------------- zdjęcia
 
 def photos_markdown(run, download_problems):
     tag_report = run.get("apriltag") or []
@@ -174,7 +174,7 @@ def _reasons(entry):
     return [r for r in reasons if r and r != "OK"] or ["rejected"]
 
 
-# ------------------------------------------------------------------ parts
+# ------------------------------------------------------------------ części
 
 def parts_markdown(run):
     check = run.get("check") or {}
@@ -205,7 +205,7 @@ def parts_markdown(run):
     return _block(*lines)
 
 
-# ------------------------------------------------------------------ images
+# ------------------------------------------------------------------ obrazy
 
 def wanted_images(params, mode):
     value = (params or {}).get("images")
@@ -220,7 +220,7 @@ def wanted_images(params, mode):
 
 
 def image_sources(run, params):
-    """Return (source path or image, caption) pairs according to params["images"]."""
+    """[(źródło: ścieżka lub obraz, podpis)] wg params["images"]."""
     from .render import render_assembly
 
     output = run["output_dir"]
@@ -251,7 +251,7 @@ def image_sources(run, params):
     return sources
 
 
-# ------------------------------------------------------------------- complete output
+# ------------------------------------------------------------------- całość
 
 def _log_block(run):
     log = run.get("log", "")[-6000:].replace("```", "'''")

@@ -60,41 +60,41 @@ def evaluation_function(
             path.write_text(text, encoding="utf-8")
             stage_paths.append(path)
 
-        # is_correct, items = pipeline.run(
-        #     images, stage_paths,
-        #     finish=lambda run: feedback.build(run, problems,
-        #                                       Attacher(params), params))
+        is_correct, items = pipeline.run(
+            images, stage_paths,
+            finish=lambda run: feedback.build(run, problems,
+                                              Attacher(params), params))
 
-        import traceback
-        def make_feedback(run_result):
-            try:
-                is_correct, items = feedback.build(
-                    run_result, problems, Attacher(params), params
-                )
-                debug = (
-                    "### DEBUG\n\n"
-                    f"- is_correct: `{is_correct}`\n"
-                    f"- items type: `{type(items).__name__}`\n"
-                    f"- items count: `{len(items)}`\n"
-                    f"- items: `{repr(items)[:4000]}`"
-                )
-                return False, [("debug", debug)]
-
-            except Exception:
-                error = traceback.format_exc()
-                return False, [("debug_error", f"### BŁĄD FEEDBACK.BUILD\n\n{error[-5000:]}")]
-
-        try:
-            is_correct, items = pipeline.run(
-                images, stage_paths, finish=make_feedback
-            )
-        except Exception:
-            error = traceback.format_exc()
-            return Result(
-                is_correct=False,
-                feedback_items=[
-                    ("pipeline_error", f"### BŁĄD PIPELINE\n\n{error[-5000:]}")
-                ],
-            )
+        # import traceback
+        # def make_feedback(run_result):
+        #     try:
+        #         is_correct, items = feedback.build(
+        #             run_result, problems, Attacher(params), params
+        #         )
+        #         debug = (
+        #             "### DEBUG\n\n"
+        #             f"- is_correct: `{is_correct}`\n"
+        #             f"- items type: `{type(items).__name__}`\n"
+        #             f"- items count: `{len(items)}`\n"
+        #             f"- items: `{repr(items)[:4000]}`"
+        #         )
+        #         return False, [("debug", debug)]
+        #
+        #     except Exception:
+        #         error = traceback.format_exc()
+        #         return False, [("debug_error", f"### BŁĄD FEEDBACK.BUILD\n\n{error[-5000:]}")]
+        #
+        # try:
+        #     is_correct, items = pipeline.run(
+        #         images, stage_paths, finish=make_feedback
+        #     )
+        # except Exception:
+        #     error = traceback.format_exc()
+        #     return Result(
+        #         is_correct=False,
+        #         feedback_items=[
+        #             ("pipeline_error", f"### BŁĄD PIPELINE\n\n{error[-5000:]}")
+        #         ],
+        #     )
 
     return Result(is_correct=is_correct, feedback_items=items)
