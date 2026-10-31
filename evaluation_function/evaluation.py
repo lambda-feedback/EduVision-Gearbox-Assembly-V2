@@ -53,11 +53,13 @@ def evaluation_function(
     except inputs.SubmissionError as exc:
         return _error(feedback._e(exc))
 
-    import random
     return Result(
         is_correct=True,
         feedback_items=[
-            ("debug", "RUNTIME TEST OK"),
-            ("random", f"Test nr {random.randint(1, 1000)}")
+            (
+                "debug",
+                f"Loaded images: {len(images)}; "
+                f"Problems: {problems}"
+            ) 
         ]
     )
