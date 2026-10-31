@@ -28,6 +28,7 @@ from concurrent.futures import Future, ProcessPoolExecutor
 from functools import partial
 from pathlib import Path
 import traceback
+import uuid
 
 GEARBOX_DIR = Path(__file__).resolve().parent / "gearbox"
 WORK_DIR = Path(os.environ.get("EDUVISION_WORK_DIR",
@@ -35,6 +36,33 @@ WORK_DIR = Path(os.environ.get("EDUVISION_WORK_DIR",
                                
                                
 DIAGNOSTIC_FILE = WORK_DIR / "_pipeline_diagnostics.jsonl"
+
+
+RUNTIME_ID_FILE = WORK_DIR / "_runtime_id"
+
+
+def get_runtime_id():
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+
+    try:
+        return RUNTIME_ID_FILE.read_text(
+            encoding="ascii"
+        ).strip()
+
+    except FileNotFoundError:
+        runtime_id = uuid.uuid4().hex
+
+        try:
+            with open(RUNTIME_ID_FILE, "x", encoding="ascii") as f:
+                f.write(runtime_id)
+
+            return runtime_id
+
+        except FileExistsError:
+            return RUNTIME_ID_FILE.read_text(
+                encoding="ascii"
+            ).strip()
+
 
 
 def _memory_snapshot():
@@ -93,6 +121,7 @@ def _diag_write(event, **data):
         "time": time.time(),
         "pid": os.getpid(),
         "event": event,
+        "runtime_id": get_runtime_id(),
         **data,
     }
 
