@@ -1,3 +1,163 @@
+"""
+Student feedback (Markdown) generated from GearBox analysis.
+
+Elements (tag, Markdown) in display order:
+    verdict  result of each stage: status, reasons, part counts, connections
+    photos   photos: rejected (reasons), quality warnings, viewpoint coverage,
+             download issues
+    parts    detected parts and drivetrain (what rotates)
+    images   images (3D render, top view, photos) - according to params["images"]
+    error    analysis interrupted (optional log: params["debug"])
+
+lf_toolkit combines elements using "<br>" and displays only the content (the tag is not
+displayed) - each element starts and ends with a blank line so that
+Markdown (headings, lists) works after concatenation.
+"""
+
+import re
+
+PASSED, FAILED, UNKNOWN = "PASSED", "FAILED", "CANNOT ASSESS"
+OK, ERROR = "OK", "ERROR"
+
+VERDICT_LABEL = {
+    PASSED: "[PASSED]",
+    FAILED: "[FAILED]",
+    UNKNOWN: "[CANNOT ASSESS]",
+}
+RESULT_MARK = {OK: "[OK]", ERROR: "[ERROR]"}
+
+STEP_NAMES = {
+    "tag": "image filter and AprilTag detection",
+    "exif": "image metadata",
+    "camera": "camera calibration",
+    "yolo": "part detection",
+    "yolo_all": "part detection",
+    "cad": "CAD fitting",
+    "fuse": "3D reconstruction",
+    "check": "assembly check",
+    "check_all": "stage check",
+}
+
+DEFAULT_IMAGES_3D = ("3d", "3d_top", "top_view")
+DEFAULT_IMAGES_NO_TAG = ("detections",)
+# Image types for the 3D render: {params name: (render.VIEWS view, caption)}
+RENDER_VIEWS = {
+    "3d": ("oblique", "3D model of the recognised assembly"),
+    "3d_top": ("top", "3D model - top view"),
+}
+
+_SPECIAL = re.compile(r"([\\`*_\[\]<>|])")
+
+
+def _e(value):
+    """Escape text for literal display in Markdown (e.g. "_" in names, "<" in descriptions)."""
+    return _SPECIAL.sub(r"\\\1", str(value))
+
+
+def _code(value):
+    return f"`{str(value).replace('`', '')}`"
+
+
+def _block(*lines):
+    return "\n\n" + "\n".join(lines).strip("\n") + "\n\n"
+
+
+def _ul(items):
+    return "\n".join(f"- {i}" for i in items if i)
+
+
+def _mark(result):
+    return RESULT_MARK.get(result, "[UNKNOWN]")
+
+
+# ------------------------------------------------------------------ stages
+
+def _relation_line(rel):
+    text = _e(rel.get("description") or f"{rel['type']}: "
+              f"{', '.join(rel.get('roles', []))}")
+    detail = rel.get("detail")
+    measurement = rel.get("measurement") or {}
+    extra = []
+    if detail and rel.get("result") != OK:
+        extra.append(_e(detail))
+    if rel["type"] == "mesh" and "center_distance_mm" in measurement:
+        extra.append(f"axis distance {measurement['center_distance_mm']:.1f}"
+                     f" mm, required {measurement['required_mm']:.1f} mm")
+    if rel.get("uncertain_parts"):
+        extra.append("uncertain: " + _e(", ".join(rel["uncertain_parts"])))
+    suffix = f" *({'; '.join(extra)})*" if extra else ""
+    return f"{_mark(rel.get('result', UNKNOWN))} {text}{suffix}"
+
+
+def _count_line(count):
+    note = " *(uncertain)*" if count.get("uncertain") else ""
+    return (f"{_mark(count['result'])} {_code(count['class'])}: found "
+            f"**{count['found']}**, expected **{count['expected']}**{note}")
+
+
+def stage_markdown(stage):
+    label = VERDICT_LABEL.get(stage["verdict"], f"[WARNING] {stage['verdict']}")
+    lines = [f"### {label} - {_e(stage['name'])}"]
+    if stage.get("description"):
+        lines += ["", f"*{_e(stage['description'])}*"]
+    if stage["verdict"] != PASSED and stage.get("reasons"):
+        lines += ["", "**What is wrong:**", "",
+                  _ul(_e(r) for r in stage["reasons"])]
+    if stage.get("counts"):
+        lines += ["", "**Parts:**", "",
+                  _ul(_count_line(c) for c in stage["counts"])]
+    if stage.get("relations"):
+        lines += ["", "**Connections:**", "",
+                  _ul(_relation_line(r) for r in stage["relations"])]
+    if stage.get("uncertain"):
+        lines += ["", f"*Uncertain: {_e(', '.join(stage['uncertain']))}*"]
+    return _block(*lines)
+
+
+# ---------------------------------------------------------------- photos
+
+def photos_markdown(run, download_problems):
+    tag_report = run.get("apriltag") or []
+    accepted = [e for e in tag_report if e.get("status") == "ACCEPTED"]
+    rejected = [e for e in tag_report if e.get("status") != "ACCEPTED"]
+    lines = ["### Photos", "",
+             f"{len(tag_report)} analysed, **{len(accepted)} accepted**, "
+             f"{len(rejected)} rejected."]
+
+    if run["mode"] == "notag":
+        lines += ["", "**The AprilTag was not found on any photo.** Only the "
+                      "list of parts could be checked; connections between "
+                      "parts cannot be assessed without the tag. Make sure "
+                      "the whole tag is visible and sharp."]
+    elif len(accepted) == 1:
+        lines += ["", "Only one photo shows the AprilTag - at least two "
+                      "(better 5 or more, from different sides) are needed "
+                      "for the 3D analysis."]
+
+    if rejected:
+        title = ("Photos without a usable AprilTag" if run["mode"] == "notag"
+                 else "Rejected photos (not used for 3D)")
+        lines += ["", f"**{title}:**", "", _ul(
+            f"{_code(e['image'])}: {_e('; '.join(_reasons(e)))}"
+            for e in rejected)]
+
+    warned = [e for e in accepted if e.get("warnings")]
+    if warned:
+        lines += ["", "**Photo quality warnings:**", "", _ul(
+            f"{_code(e['image'])}: {_e('; '.join(e['warnings']))}"
+            for e in warned)]
+
+    camera = run.get("camera") or {}
+    unknown = [c for c in camera.get("images", [])
+               if c.get("status") == "UNKNOWN"]
+    if unknown:
+        lines += ["", "**Camera position could not be determined:**", "",
+                  _ul(f"{_code(c['image'])}: "
+                      f"{_e('; '.join(c.get('reasons') or []))}"
+                      for c in unknown)]
+
+    coverage = camera.get("coverage") or {}
+    if coverage.get("warnings"):
         lines += ["", "**Viewpoints:**", "",
                   _ul(_e(w) for w in coverage["warnings"])]
 
@@ -137,3 +297,4 @@ def build(run, download_problems, attacher, params):
 
     is_correct = bool(stages) and all(s["verdict"] == PASSED for s in stages)
     return is_correct, items
+
