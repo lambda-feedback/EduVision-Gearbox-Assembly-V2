@@ -1,12 +1,12 @@
 """
-Student feedback (Markdown) generated from GearBox analysis.
+Student feedback (Markdown) from GearBox analysis.
 
 Elements (tag, Markdown) in display order:
     verdict  result of each stage: status, reasons, part counts, connections
     photos   photos: rejected (reasons), quality warnings, viewpoint coverage,
              download issues
     parts    detected parts and drivetrain (what rotates)
-    images   images (3D render, top view, photos) - according to params["images"]
+    images   images (3D render, top view, photos) according to params["images"]
     error    analysis interrupted (optional log: params["debug"])
 
 lf_toolkit combines elements using "<br>" and displays only the content (the tag is not
@@ -20,11 +20,11 @@ PASSED, FAILED, UNKNOWN = "PASSED", "FAILED", "CANNOT ASSESS"
 OK, ERROR = "OK", "ERROR"
 
 VERDICT_LABEL = {
-    PASSED: "[PASSED]",
-    FAILED: "[FAILED]",
-    UNKNOWN: "[CANNOT ASSESS]",
+    PASSED: "✅ PASSED",
+    FAILED: "❌ FAILED",
+    UNKNOWN: "⚠️ CANNOT ASSESS",
 }
-RESULT_MARK = {OK: "[OK]", ERROR: "[ERROR]"}
+RESULT_MARK = {OK: "✅", ERROR: "❌"}
 
 STEP_NAMES = {
     "tag": "image filter and AprilTag detection",
@@ -43,14 +43,14 @@ DEFAULT_IMAGES_NO_TAG = ("detections",)
 # Image types for the 3D render: {params name: (render.VIEWS view, caption)}
 RENDER_VIEWS = {
     "3d": ("oblique", "3D model of the recognised assembly"),
-    "3d_top": ("top", "3D model - top view"),
+    "3d_top": ("top", "3D model — top view"),
 }
 
 _SPECIAL = re.compile(r"([\\`*_\[\]<>|])")
 
 
 def _e(value):
-    """Escape text for literal display in Markdown (e.g. "_" in names, "<" in descriptions)."""
+    """Escape text without Markdown formatting (e.g. "_" in names, "<" in descriptions)."""
     return _SPECIAL.sub(r"\\\1", str(value))
 
 
@@ -67,7 +67,7 @@ def _ul(items):
 
 
 def _mark(result):
-    return RESULT_MARK.get(result, "[UNKNOWN]")
+    return RESULT_MARK.get(result, "⚠️")
 
 
 # ------------------------------------------------------------------ stages
@@ -96,8 +96,8 @@ def _count_line(count):
 
 
 def stage_markdown(stage):
-    label = VERDICT_LABEL.get(stage["verdict"], f"[WARNING] {stage['verdict']}")
-    lines = [f"### {label} - {_e(stage['name'])}"]
+    label = VERDICT_LABEL.get(stage["verdict"], f"⚠️ {stage['verdict']}")
+    lines = [f"### {label} — {_e(stage['name'])}"]
     if stage.get("description"):
         lines += ["", f"*{_e(stage['description'])}*"]
     if stage["verdict"] != PASSED and stage.get("reasons"):
@@ -130,7 +130,7 @@ def photos_markdown(run, download_problems):
                       "parts cannot be assessed without the tag. Make sure "
                       "the whole tag is visible and sharp."]
     elif len(accepted) == 1:
-        lines += ["", "Only one photo shows the AprilTag - at least two "
+        lines += ["", "Only one photo shows the AprilTag — at least two "
                       "(better 5 or more, from different sides) are needed "
                       "for the 3D analysis."]
 
@@ -269,7 +269,7 @@ def build(run, download_problems, attacher, params):
             items.append(("verdict", stage_markdown(stage)))
     else:
         items.append(("verdict", _block(
-            "### [CANNOT ASSESS]", "", "The analysis did not finish.")))
+            "### ⚠️ CANNOT ASSESS", "", "The analysis did not finish.")))
 
     items.append(("photos", photos_markdown(run, download_problems)))
     if check:
@@ -297,4 +297,3 @@ def build(run, download_problems, attacher, params):
 
     is_correct = bool(stages) and all(s["verdict"] == PASSED for s in stages)
     return is_correct, items
-
