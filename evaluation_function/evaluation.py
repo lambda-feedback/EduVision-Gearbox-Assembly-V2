@@ -70,6 +70,7 @@ def evaluation_function(
     except inputs.SubmissionError as exc:
         return _error(feedback._e(exc))
 
+
     with tempfile.TemporaryDirectory(prefix="eduvision_stages_") as folder:
         stage_paths = []
         for index, (name, text) in enumerate(stages):
@@ -77,12 +78,14 @@ def evaluation_function(
             path.write_text(text, encoding="utf-8")
             stage_paths.append(path)
 
-        is_correct, items = pipeline.run(
-            images, stage_paths,
-            finish=lambda run: feedback.build(run, problems,
-                                              Attacher(params), params))
+        #is_correct, items = pipeline.run(
+        #    images, stage_paths,
+        #    finish=lambda run: feedback.build(run, problems,
+        #                                      Attacher(params), params))
 
     items = [
-        ("test1", "test2")
+        ("aaaa", "bbbb")
     ]
+    is_correct = False
+
     return Result(is_correct=is_correct, feedback_items=items)
