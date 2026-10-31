@@ -19,13 +19,14 @@ FROM ghcr.io/lambda-feedback/evaluation-function-base/python:3.12
 RUN if command -v apt-get >/dev/null 2>&1; then \
         apt-get update && apt-get install -y --no-install-recommends \
             libgl1 \
+            libegl1 \
             libglib2.0-0 \
             libgomp1 \
         && rm -rf /var/lib/apt/lists/*; \
     elif command -v dnf >/dev/null 2>&1; then \
-        dnf install -y mesa-libGL glib2 libgomp && dnf clean all; \
+        dnf install -y mesa-libGL mesa-libEGL glib2 libgomp && dnf clean all; \
     elif command -v yum >/dev/null 2>&1; then \
-        yum install -y mesa-libGL glib2 libgomp && yum clean all; \
+        yum install -y mesa-libGL mesa-libEGL glib2 libgomp && yum clean all; \
     else \
         echo "Unsupported package manager: cannot install system dependencies" >&2; \
         exit 1; \
