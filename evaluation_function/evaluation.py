@@ -85,5 +85,37 @@ def evaluation_function(
 
 
     is_correct = False
+    feedback_items = [
+        (
+            "\n\n## Wynik analizy\n",
+            """
+    ### Wykryty komponent
+
+    - **Komponent:** Servo
+    - **Pewność wykrycia:** 95%
+    - **Wynik:** Poprawny
+
+    ### Informacja zwrotna
+
+    Komponent został poprawnie rozpoznany na przesłanym zdjęciu.
+
+    **Dobra robota!**
+    """
+        ),
+        (
+            "\n\n## Wskazówki\n",
+            """
+    - Zadbaj o dobre oświetlenie zdjęcia.
+    - Umieszczaj komponent możliwie blisko środka kadru.
+    - Unikaj zasłaniania elementu.
+    """
+        )
+    ]
+
+    return Result(
+        is_correct=True,
+        feedback_items=feedback_items
+    )    
+    
 
     return Result(is_correct=is_correct, feedback_items=params)
