@@ -41,23 +41,6 @@ def evaluation_function(
     params: Params,
 ) -> Result:
 
-    params = dict(params or {})
-
-    try:
-        stages = inputs.stage_definitions(answer, params)
-    except ValueError as exc:
-        return _error(f"Task configuration error: {feedback._e(exc)}")
-
-    try:
-        images, problems = inputs.load_images(response)
-    except inputs.SubmissionError as exc:
-        return _error(feedback._e(exc))
-
-    items = [
-        ("test1", "test2")
-    ]
-    return Result(is_correct=True, feedback_items=response)
-
     # params = dict(params or {})
     #
     # try:
@@ -70,15 +53,36 @@ def evaluation_function(
     # except inputs.SubmissionError as exc:
     #     return _error(feedback._e(exc))
     #
-    # with tempfile.TemporaryDirectory(prefix="eduvision_stages_") as folder:
-    #     stage_paths = []
-    #     for index, (name, text) in enumerate(stages):
-    #         path = Path(folder) / f"{index:02d}_{name}"
-    #         path.write_text(text, encoding="utf-8")
-    #         stage_paths.append(path)
-    #
-    #     is_correct, items = pipeline.run(
-    #         images, stage_paths,
-    #         finish=lambda run: feedback.build(run, problems,
-    #                                           Attacher(params), params))
-    # return Result(is_correct=is_correct, feedback_items=items)
+    # items = [
+    #     ("test1", "test2")
+    # ]
+    # return Result(is_correct=True, feedback_items=items)
+
+    params = dict(params or {})
+
+    try:
+        stages = inputs.stage_definitions(answer, params)
+    except ValueError as exc:
+        return _error(f"Task configuration error: {feedback._e(exc)}")
+
+    try:
+        images, problems = inputs.load_images(response)
+    except inputs.SubmissionError as exc:
+        return _error(feedback._e(exc))
+
+    with tempfile.TemporaryDirectory(prefix="eduvision_stages_") as folder:
+        stage_paths = []
+        for index, (name, text) in enumerate(stages):
+            path = Path(folder) / f"{index:02d}_{name}"
+            path.write_text(text, encoding="utf-8")
+            stage_paths.append(path)
+
+        is_correct, items = pipeline.run(
+            images, stage_paths,
+            finish=lambda run: feedback.build(run, problems,
+                                              Attacher(params), params))
+
+    items = [
+        ("test1", "test2")
+    ]
+    return Result(is_correct=is_correct, feedback_items=items)
