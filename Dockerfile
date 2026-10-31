@@ -50,6 +50,7 @@ ENV EDUVISION_WORK_DIR=/tmp/eduvision \
     MPLCONFIGDIR=/tmp/matplotlib \
     YOLO_OFFLINE=1 \
     YOLO_VERBOSE=False
+	EDUVISION_WORKERS=0
 
 # Function startup configuration.
 ENV FUNCTION_COMMAND="python" \
