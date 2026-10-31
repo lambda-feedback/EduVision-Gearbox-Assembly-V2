@@ -27,6 +27,7 @@ import time
 from concurrent.futures import Future, ProcessPoolExecutor
 from functools import partial
 from pathlib import Path
+import traceback
 
 GEARBOX_DIR = Path(__file__).resolve().parent / "gearbox"
 WORK_DIR = Path(os.environ.get("EDUVISION_WORK_DIR",
@@ -168,7 +169,7 @@ def _reset_work_dir():
         folder.mkdir(parents=True)
 
 
-def run(images, stage_paths, finish=None):
+def run(images, stage_paths, finish=None, diagnostics=None):
     """
     images: [(nazwa pliku, bajty)], stage_paths: pliki YAML etapów.
     Wynik: słownik z raportami etapów (None, gdy etap nie powstał):
@@ -189,6 +190,12 @@ def run(images, stage_paths, finish=None):
         steps, failed, mode = [], None, MODE_3D
         saved_argv = sys.argv
         started = time.time()
+        def record(event, **data):
+            if diagnostics is not None:
+                diagnostics.append({
+                    "event": event,
+                    **data
+                })
         with _captured_stdout() as log:
             try:
                 plan = [s for s in rp.STEPS if s[0] != "view"]
@@ -196,10 +203,35 @@ def run(images, stage_paths, finish=None):
                     key, _, module, args = plan.pop(0)
                     if module == "check_assembly":
                         args = stage_args
+
+                    record("step_start", step=key)
+
                     step_start = time.time()
-                    ok = rp.run_step(key, module, args, OUTPUT_DIR)
-                    steps.append((key, ok, round(time.time() - step_start,
-                                                 1)))
+
+                    try:
+                        ok = rp.run_step(key, module, args, OUTPUT_DIR)
+
+                    except Exception as exc:
+                        record(
+                            "step_exception",
+                            step=key,
+                            error=repr(exc),
+                            traceback=traceback.format_exc()
+                        )
+                        raise
+
+                    duration = round(time.time() - step_start, 1)
+
+                    steps.append((key, ok, duration))
+
+                    record(
+                        "step_end",
+                        step=key,
+                        ok=bool(ok),
+                        seconds=duration
+                    )
+
+
                     if not ok:
                         failed = failed or key
                         if key in _SOFT_STEPS:

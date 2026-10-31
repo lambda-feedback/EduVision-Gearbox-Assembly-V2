@@ -1,28 +1,7 @@
-"""
-EduVision — ocena montażu przekładni ze zdjęć studenta.
-
-    response  zdjęcia (adresy URL / data URI / base64; formaty: inputs.py)
-    answer    etap do sprawdzenia: nazwa etapu dołączonego do funkcji
-              (np. "etap_pelny") albo definicja YAML/JSON (jak
-              assemblies/*.yaml w aplikacji GearBox); lista = wszystkie
-              etapy muszą być zaliczone
-    params    opcjonalnie:
-                stage        etap, gdy answer jest pusty
-                images       ["3d", "3d_top", "top_view", "photos",
-                             "detections"],
-                             true (domyślne) lub false
-                max_photos   ile zdjęć dla "photos"/"detections" (3)
-                image_mode   "upload" (domyślnie) | "inline" | "none"
-                image_folder katalog w magazynie obrazów ("eduvision")
-                debug        true — log analizy w feedbacku
-
-Wynik: is_correct = wszystkie etapy ZALICZONE; feedback (Markdown) — ocena,
-powody, części, połączenia, problemy ze zdjęciami, obrazy.
-"""
-
 import tempfile
 from pathlib import Path
 from typing import Any
+import traceback
 
 from lf_toolkit.evaluation import Params, Result
 
@@ -42,34 +21,52 @@ def evaluation_function(
 ) -> Result:
 
     params = dict(params or {})
+    diagnostics = []
 
     try:
         stages = inputs.stage_definitions(answer, params)
-    except ValueError as exc:
-        return _error(f"Task configuration error: {feedback._e(exc)}")
-
-    try:
         images, problems = inputs.load_images(response)
-    except inputs.SubmissionError as exc:
-        return _error(feedback._e(exc))
 
-    with tempfile.TemporaryDirectory(
-        prefix="eduvision_stages_"
-    ) as folder:
+        with tempfile.TemporaryDirectory(
+            prefix="eduvision_stages_"
+        ) as folder:
 
-        stage_paths = []
+            stage_paths = []
 
-        for index, (name, text) in enumerate(stages):
-            path = Path(folder) / f"{index:02d}_{name}"
-            path.write_text(text, encoding="utf-8")
-            stage_paths.append(path)
+            for index, (name, text) in enumerate(stages):
+                path = Path(folder) / f"{index:02d}_{name}"
+                path.write_text(text, encoding="utf-8")
+                stage_paths.append(path)
 
-        run_result = pipeline.run(images, stage_paths)
+            run_result = pipeline.run(
+                images,
+                stage_paths,
+                diagnostics=diagnostics
+            )
+
+        diagnostic_text = "\n".join(
+            (
+                f"- {d.get('event')} | "
+                f"step={d.get('step')} | "
+                f"ok={d.get('ok')} | "
+                f"time={d.get('seconds')}s | "
+                f"error={d.get('error')}"
+            )
+            for d in diagnostics
+        )
+
+        log = (run_result.get("log") or "")[-6000:]
 
         debug = (
-            f"Steps: {run_result.get('steps')}\n"
-            f"Failed step: {run_result.get('failed_step')}\n"
-            f"Mode: {run_result.get('mode')}"
+            "### PIPELINE DIAGNOSTICS\n\n"
+            f"**Mode:** `{run_result.get('mode')}`\n\n"
+            f"**Failed step:** `{run_result.get('failed_step')}`\n\n"
+            f"**Executor:** `{run_result.get('executor')}`\n\n"
+            f"**Duration:** `{run_result.get('seconds')}` seconds\n\n"
+            "### Step history\n\n"
+            f"```text\n{diagnostic_text or 'No steps recorded.'}\n```\n\n"
+            "### Captured log\n\n"
+            f"```text\n{log}\n```"
         )
 
         return Result(
@@ -77,3 +74,21 @@ def evaluation_function(
             feedback_items=[("debug", debug)]
         )
 
+    except Exception:
+        error = traceback.format_exc()
+
+        diagnostic_text = repr(diagnostics)
+
+        return Result(
+            is_correct=False,
+            feedback_items=[
+                (
+                    "debug_error",
+                    "### PIPELINE ERROR\n\n"
+                    f"**Recorded steps:**\n\n"
+                    f"```text\n{diagnostic_text}\n```\n\n"
+                    f"**Traceback:**\n\n"
+                    f"```text\n{error[-8000:]}\n```"
+                )
+            ]
+        )
