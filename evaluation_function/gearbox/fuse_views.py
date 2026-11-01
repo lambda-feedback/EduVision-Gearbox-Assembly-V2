@@ -61,6 +61,7 @@ from config import (
     FUSION_STRONG_VIEWS,
     FUSION_STRONG_VIEWS_FRACTION,
     FUSION_ABSORB_MIN_IOU,
+    FUSION_PHANTOM_MIN_IOU,
     FUSION_EVICT_MAX_IOU,
     SHAFT_MAX_ANGLE_DEG,
     SHAFT_MAX_OFFSET_MM,
@@ -607,7 +608,7 @@ def fit_cluster(obs_list, parts, context, index=None):
     }
 
 
-def absorb(leftovers, parts, context):
+def absorb(leftovers, parts, context, min_iou=FUSION_ABSORB_MIN_IOU):
     """
     Przypisuje obserwacje z małych grup do pewnych części: rzut części
     (pozy wielowidokowej) na zdjęcie obserwacji musi pokrywać jej maskę.
@@ -625,7 +626,7 @@ def absorb(leftovers, parts, context):
                                        models[part["class_id"]], cache)
             _, ious, _ = problem.evaluate(np.array(part["center_world_mm"]),
                                           np.array(part["axis_world"]))
-            if ious[0] >= FUSION_ABSORB_MIN_IOU:
+            if ious[0] >= min_iou:
                 candidates.append((ious[0], id(obs), obs, part))
 
     taken_obs, taken_slots, result = set(), set(), []
@@ -637,6 +638,74 @@ def absorb(leftovers, parts, context):
         taken_slots.add(slot)
         result.append((part, obs))
     return result
+
+
+def dissolve_phantoms(parts, context, pool):
+    """
+    Fantom: część niepewna (nie CONFIRMED), której KAŻDĄ obserwację wyjaśnia
+    inna część — jej rzut pokrywa maskę obserwacji na zdjęciu, na którym
+    tamta nie ma jeszcze obserwacji (warunki absorb()). Powstaje, gdy
+    promienie detekcji RÓŻNYCH części przypadkiem przecinają się w jednym
+    punkcie (łatwiej przy kilku zdjęciach z podobnej wysokości). Fantom jest
+    usuwany, jego obserwacje trafiają do części, które je wyjaśniają, a te
+    są dopasowywane ponownie. Zwraca (części, raport usuniętych).
+    """
+    report = []
+    while True:
+        parent_ids = {p["mount"]["parent"] for p in parts
+                      if p.get("mount") and p["mount"].get("accepted")}
+        suspects = sorted((p for p in parts if p["status"] != "CONFIRMED"
+                           and p["id"] not in parent_ids),
+                          key=lambda p: p["fit"]["mean_iou"])
+        for phantom in suspects:
+            moves = absorb(phantom["_obs"],
+                           [p for p in parts if p is not phantom], context,
+                           min_iou=FUSION_PHANTOM_MIN_IOU)
+            if len(moves) == len(phantom["_obs"]):
+                break
+        else:
+            return parts, report
+
+        # Nowa numeracja (bez fantomu) i odwołania montażu.
+        remaining = [p for p in parts if p is not phantom]
+        new_ids = {p["id"]: f"P{i}" for i, p in enumerate(remaining)}
+        for i, p in enumerate(remaining):
+            p["part_index"], p["id"] = i, f"P{i}"
+            if p.get("mount") and p["mount"].get("parent") in new_ids:
+                p["mount"]["parent"] = new_ids[p["mount"]["parent"]]
+
+        received = defaultdict(list)
+        for target, obs in moves:
+            received[id(target)].append(obs)
+        targets = [p for p in remaining if id(p) in received]
+        tasks = [(p["_obs"] + received[id(p)], p["part_index"])
+                 for p in targets]
+        current = {p["part_index"]: p for p in remaining}
+
+        def parents_for_refit(idx, done):
+            state = dict(current)
+            state.update(done)
+            return mount_parents([state[j] for j in sorted(state)
+                                  if j != idx])
+
+        for old, new in zip(targets, fit_in_order(pool, tasks,
+                                                  parents_for_refit)):
+            new["absorbed_observations"] = (
+                old.get("absorbed_observations", [])
+                + [o["detection"]["id"] for o in received[id(old)]])
+            remaining[old["part_index"]] = new
+
+        report.append({
+            "class_name": phantom["class_name"],
+            "observations": phantom["observations"],
+            "center_world_mm": phantom["center_world_mm"],
+            "moved_to": {p["id"]: [o["detection"]["id"]
+                                   for o in received[id(p)]]
+                         for p in targets},
+            "reason": "every observation is explained by another part "
+                      "(rays of different parts crossing by chance)",
+        })
+        parts = remaining
 
 
 # --------------------------------------------------------------------------
@@ -1005,6 +1074,10 @@ def main():
             lambda idx, done: mount_parents(
                 base + [done[j] for j in sorted(done) if j < idx]))
 
+    # 4b. Fantomy: części złożone z detekcji różnych części, których
+    #     promienie przypadkiem się przecinają.
+    parts, phantoms = dissolve_phantoms(parts, context, pool)
+
     # 5. Wspólne osie (wałki).
     shafts = apply_shaft_alignment(parts, context, pool)
 
@@ -1043,6 +1116,7 @@ def main():
             "parts": parts,
             "shafts": shafts,
             "unconfirmed_observations": unconfirmed_report,
+            "dissolved_phantoms": phantoms,
             "class_counts": dict(class_counts),
             "cad_scale_check": scale_check,
         }, file, indent=2, ensure_ascii=False)
@@ -1064,6 +1138,11 @@ def main():
               f"votes={p['class_votes']}{mount}")
         for w in p["warnings"]:
             print(f"       - {w}")
+
+    for ph in phantoms:
+        print(f"Removed phantom {ph['class_name']} at "
+              f"{ph['center_world_mm']} mm — observations moved to "
+              f"{ph['moved_to']}")
 
     print("\nCommon axes:")
     for s in shafts:

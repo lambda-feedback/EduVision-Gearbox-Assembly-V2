@@ -125,6 +125,11 @@ FUSION_STRONG_VIEWS = 3
 # fałszywą część). Gdy się nie da — nadal stają się osobną częścią.
 FUSION_STRONG_VIEWS_FRACTION = 0.5
 FUSION_ABSORB_MIN_IOU = 0.5
+# Fantom (fuse_views.dissolve_phantoms): część niepewna, której KAŻDĄ
+# obserwację pokrywa rzut innej części (na zdjęciu, gdzie tamta nie ma
+# obserwacji). Warunek "wszystkie" jest mocny, więc próg pokrycia niższy
+# niż przy absorb — rzut części z 3 zdjęć bywa przesunięty (IoU ~0.45).
+FUSION_PHANTOM_MIN_IOU = 0.3
 # Obserwacja, której maski model 3D części prawie nie pokrywa
 # (IoU poniżej progu), jest od części odłączana i może trafić do innej.
 FUSION_EVICT_MAX_IOU = 0.2
