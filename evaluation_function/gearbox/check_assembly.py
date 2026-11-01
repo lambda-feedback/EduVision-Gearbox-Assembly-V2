@@ -128,9 +128,14 @@ def check_same_axis(a, b):
     angle = axis_angle_deg(da, db)
     distance = max(line_distance(pa, da, pb), line_distance(pb, db, pa))
     ok = angle <= CHECK_PARALLEL_TOL_DEG and distance <= CHECK_COAXIAL_TOL_MM
-    return ok, {"angle_deg": round(angle, 2),
-                "axis_distance_mm": round(distance, 2),
-                "tolerance_mm": CHECK_COAXIAL_TOL_MM}
+    info = {"angle_deg": round(angle, 2),
+            "axis_distance_mm": round(distance, 2),
+            "tolerance_mm": CHECK_COAXIAL_TOL_MM}
+    if angle > CHECK_PARALLEL_TOL_DEG:
+        info["detail"] = f"axes not parallel ({angle:.1f}°)"
+    elif distance > CHECK_COAXIAL_TOL_MM:
+        info["detail"] = f"not on a common axis ({distance:.1f} mm apart)"
+    return ok, info
 
 
 def check_adjacent(a, b, max_gap):
@@ -207,6 +212,8 @@ def best_mesh(a, b, a_section=None, b_section=None):
             info["detail"] = "axis distance does not match a mesh"
         elif info["axial_overlap_mm"] < CHECK_MESH_MIN_OVERLAP_MM:
             info["detail"] = "teeth offset along the axis (no overlap)"
+        elif info["angle_deg"] > CHECK_PARALLEL_TOL_DEG:
+            info["detail"] = f"axes not parallel ({info['angle_deg']:.1f}°)"
     return ok, info
 
 

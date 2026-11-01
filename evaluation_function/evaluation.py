@@ -19,23 +19,30 @@ EduVision — ocena montażu przekładni ze zdjęć studenta.
 Wynik: is_correct = wszystkie etapy ZALICZONE; feedback (Markdown) — ocena,
 powody, części, połączenia, problemy ze zdjęciami, obrazy.
 
-Analiza działa w osobnym procesie (worker.py) z własnym katalogiem
-roboczym: pamięć wraca do systemu po każdym zgłoszeniu, równoległe
-zgłoszenia sobie nie przeszkadzają, a brak pamięci lub przekroczenie czasu
+Analiza działa w osobnym, stałym procesie (worker.py --serve): biblioteki
+i model YOLO ładowane są raz, a nie przy każdym zgłoszeniu. Proces jest
+restartowany, gdy jego pamięć przekroczy próg, po N zadaniach, po
+przekroczeniu czasu albo po awarii — brak pamięci lub przekroczenie czasu
 kończy się komunikatem dla studenta zamiast błędu serwera.
 
 Zmienne środowiskowe:
-    EDUVISION_WORK_DIR      katalog na zadania (domyślnie <temp>/eduvision)
-    EDUVISION_TIME_LIMIT_S  limit czasu jednej analizy (domyślnie 600 s)
-    EDUVISION_SUBPROCESS    "0" — analiza w tym procesie (diagnostyka)
+    EDUVISION_WORK_DIR        katalog na zadania (domyślnie <temp>/eduvision)
+    EDUVISION_TIME_LIMIT_S    limit czasu jednej analizy (domyślnie 600 s)
+    EDUVISION_PRESTART        "1" — proces analizy startuje razem z serwerem
+    EDUVISION_WORKER_REUSE    "0" — nowy proces na każde zgłoszenie
+    EDUVISION_WORKER_MAX_MB   próg pamięci restartu (domyślnie 3000)
+    EDUVISION_WORKER_MAX_JOBS restart po tylu zadaniach (domyślnie 20)
+    EDUVISION_SUBPROCESS      "0" — analiza w procesie serwera (diagnostyka)
 """
 
 import json
 import os
+import queue
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -90,7 +97,7 @@ def _run_in_process(images, stage_paths, problems, params):
                                           params))
 
 
-def _run_in_subprocess(job_dir, images, stage_paths, problems, params):
+def _write_job(job_dir, images, stage_paths, problems, params):
     (job_dir / "images").mkdir()
     for name, data in images:
         (job_dir / "images" / name).write_bytes(data)
@@ -101,34 +108,157 @@ def _run_in_subprocess(job_dir, images, stage_paths, problems, params):
         "params": params,
     }, ensure_ascii=False), encoding="utf-8")
 
+
+def _worker_command(*args):
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
         [str(PACKAGE_ROOT)] + [p for p in sys.path if p])
+    return ([sys.executable, "-m", "evaluation_function.worker", *args],
+            {"cwd": str(PACKAGE_ROOT), "env": env})
+
+
+class _Worker:
+    """Stały proces analizy (worker.py --serve). stdout procesu to kanał
+    poleceń (stdout serwera bywa kanałem RPC, więc nie jest dziedziczony);
+    stderr — postęp etapów — idzie na bieżąco do logów serwera."""
+
+    def __init__(self):
+        command, options = _worker_command("--serve")
+        self.proc = subprocess.Popen(
+            command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace", bufsize=1,
+            **options)
+        self.lines = queue.Queue()
+        threading.Thread(target=self._read, daemon=True).start()
+        _log(f"worker process started (pid {self.proc.pid})")
+
+    def _read(self):
+        for line in self.proc.stdout:
+            self.lines.put(line.rstrip("\n"))
+        self.lines.put(None)                     # proces się zakończył
+
+    def alive(self):
+        return self.proc.poll() is None
+
+    def kill(self):
+        try:
+            self.proc.kill()
+            self.proc.wait(timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+    def run(self, job_dir, limit):
+        """-> (status "done"/"timeout"/"exited", dane, log)."""
+        deadline = time.time() + limit
+        log = []
+        try:
+            self.proc.stdin.write(f"{job_dir}\n")
+            self.proc.stdin.flush()
+        except OSError:
+            return "exited", {"return_code": self.proc.poll()}, log
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                self.kill()
+                return "timeout", {}, log
+            try:
+                line = self.lines.get(timeout=remaining)
+            except queue.Empty:
+                continue
+            if line is None:
+                self.proc.wait()
+                return "exited", {"return_code": self.proc.returncode}, log
+            if line.startswith("@@JOB_DONE "):
+                return "done", json.loads(line[len("@@JOB_DONE "):]), log
+            if line != "@@READY":
+                log.append(line)
+
+
+_WORKER = None
+_WORKER_LOCK = threading.Lock()
+
+
+def _get_worker():
+    global _WORKER
+    if _WORKER is None or not _WORKER.alive():
+        _WORKER = _Worker()
+    return _WORKER
+
+
+def _run_in_worker(job_dir, limit):
+    """Zadanie w stałym procesie analizy (uruchamianym w razie potrzeby)."""
+    global _WORKER
+    with _WORKER_LOCK:
+        worker = _get_worker()
+        status, data, log = worker.run(job_dir, limit)
+        if status != "done" or data.get("restart"):
+            if status == "done":
+                try:
+                    worker.proc.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    worker.kill()
+            # Katalog roboczy zakończonego procesu (zdjęcia, wyniki).
+            shutil.rmtree(_jobs_dir() / f"worker_{worker.proc.pid}",
+                          ignore_errors=True)
+            _WORKER = None
+            # Następny proces ładuje biblioteki już teraz, a nie przy
+            # kolejnym zgłoszeniu.
+            _WORKER = _Worker()
+    stats = {"worker": status}
+    if status == "timeout":
+        stats["status"] = "timeout"
+    elif status == "exited":
+        code = data.get("return_code")
+        stats.update(return_code=code, status="killed"
+                     if code in KILLED_CODES else "error")
+    else:
+        stats.update(worker_rss_mb=data.get("rss_mb"),
+                     worker_jobs=data.get("jobs"),
+                     worker_restart=data.get("restart"),
+                     status="ok" if data.get("status") == "ok" else "error")
+    return stats, "\n".join(log)
+
+
+def _run_once(job_dir, limit):
+    """Zadanie w nowym procesie (EDUVISION_WORKER_REUSE=0)."""
+    command, options = _worker_command(str(job_dir))
+    try:
+        proc = subprocess.run(command, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, timeout=limit,
+                              **options)
+    except subprocess.TimeoutExpired:
+        return {"status": "timeout"}, ""
+    code = proc.returncode
+    status = "ok" if code == 0 else (
+        "killed" if code in KILLED_CODES else "error")
+    return ({"return_code": code, "status": status},
+            proc.stdout.decode("utf-8", errors="replace"))
+
+
+def _run_in_subprocess(job_dir, images, stage_paths, problems, params):
+    _write_job(job_dir, images, stage_paths, problems, params)
     limit = float(os.environ.get("EDUVISION_TIME_LIMIT_S", "600"))
     started = time.time()
-    try:
-        # stdout procesu przechwycony (stdout serwera bywa kanałem RPC);
-        # stderr — postęp etapów — idzie na bieżąco do logów serwera.
-        proc = subprocess.run(
-            [sys.executable, "-m", "evaluation_function.worker",
-             str(job_dir)],
-            cwd=str(PACKAGE_ROOT), env=env, stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, timeout=limit)
-    except subprocess.TimeoutExpired:
-        return None, {"status": "timeout", "limit_s": limit,
-                      "process_seconds": round(time.time() - started, 1)}, ""
+    if os.environ.get("EDUVISION_WORKER_REUSE", "1") == "0":
+        stats, log = _run_once(job_dir, limit)
+    else:
+        stats, log = _run_in_worker(job_dir, limit)
+    stats["process_seconds"] = round(time.time() - started, 1)
+    stats["limit_s"] = limit
 
-    log = proc.stdout.decode("utf-8", errors="replace")
-    stats = {"return_code": proc.returncode,
-             "process_seconds": round(time.time() - started, 1)}
     result_file = job_dir / "result.json"
-    if proc.returncode != 0 or not result_file.is_file():
-        stats["status"] = ("killed" if proc.returncode in KILLED_CODES
-                           else "error")
+    if stats["status"] != "ok" or not result_file.is_file():
+        if stats["status"] == "ok":
+            stats["status"] = "error"
         return None, stats, log
     result = json.loads(result_file.read_text(encoding="utf-8"))
-    stats.update(result.get("stats", {}), status="ok")
+    stats.update(result.get("stats", {}))
     return result, stats, log
+
+
+if os.environ.get("EDUVISION_PRESTART") == "1":
+    # Proces analizy ładuje biblioteki od razu przy starcie serwera.
+    _WORKER = _Worker()
 
 
 def evaluation_function(

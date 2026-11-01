@@ -168,7 +168,10 @@ GEAR_SECTIONS = {
 DRIVE_SOURCE_CLASS = 5   # engine
 
 # Tolerancje kontroli (pomiar 3D ma ~0.5 mm niepewności).
-CHECK_PARALLEL_TOL_DEG = 6.0
+# Osie w tej przekładni są fizycznie równoległe; kąt mierzony przy słabo
+# dopasowanym silniku (driving_gear jest na jego osi) dochodzi do ~7°
+# (6 zdjęć z podobnej wysokości) — 6° odrzucało prawdziwe zazębienia.
+CHECK_PARALLEL_TOL_DEG = 10.0
 CHECK_COAXIAL_TOL_MM = 1.5
 # |rozstaw zmierzony - wymagany|. Dokładność pomiaru położenia kół to
 # ok. ±1 mm (zmierzone odchyłki prawdziwych zazębień: -0.31…+0.07 mm),

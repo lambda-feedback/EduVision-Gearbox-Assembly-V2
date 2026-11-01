@@ -51,7 +51,13 @@ class InlineExecutor:
     def __init__(self, max_workers=None, initializer=None, initargs=(),
                  **_):
         if initializer is not None:
+            # Initializery puli ustawiają 1 wątek OpenCV (równoległość daje
+            # pula procesów) — tu wszystko liczy się w jednym procesie,
+            # więc liczba wątków wraca do poprzedniej.
+            import cv2
+            threads = cv2.getNumThreads()
             initializer(*initargs)
+            cv2.setNumThreads(threads)
 
     def submit(self, fn, *args, **kwargs):
         future = Future()

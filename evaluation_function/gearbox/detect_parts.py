@@ -510,6 +510,18 @@ def draw_debug(image, detections, masks):
 
 # --------------------------------------------------------------------------
 
+_MODEL = None
+
+
+def load_model():
+    """Model YOLO wczytywany raz na proces (kolejne analizy w tym samym
+    procesie — np. serwer — używają go ponownie)."""
+    global _MODEL
+    if _MODEL is None:
+        _MODEL = YOLO(str(MODEL_PATH))
+    return _MODEL
+
+
 def main():
     parser = argparse.ArgumentParser(description="Stage 5: part detection.")
     parser.add_argument(
@@ -531,7 +543,7 @@ def main():
     if not images:
         sys.exit(f"ERROR: No images in {source_dir}")
 
-    model = YOLO(str(MODEL_PATH))
+    model = load_model()
     mismatches = [
         f"ID {cid}: oczekiwano {name!r}, model ma {model.names.get(cid)!r}"
         for cid, name in CLASS_NAMES.items()
