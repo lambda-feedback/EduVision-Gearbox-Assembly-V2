@@ -11,6 +11,15 @@
 #                         można zmienić: max_gap_mm: 2.0)
 #   driven: A             A obraca się po włączeniu silnika
 #   not_driven: A         A nie może się obracać
+#   upright: A            A stoi na krawędzi (tarcza ~90° do podstawy,
+#                         można zmienić: tolerance_deg: 20)
+#   speed: A              prędkość A (obr/min) przy silniku motor_rpm:
+#     rpm: 2000           wymagana, ± tolerance_pct (domyślnie 10)
+#     min_rpm / max_rpm   albo zakres (jedno lub oba)
+#     direction: same     opcjonalnie: same | opposite (względem silnika)
+#   speed: output         j.w. dla wyjścia przekładni (najwolniejsze
+#                         napędzane koło) — dowolne poprawne złożenie
+# motor_rpm: 8000         prędkość silnika (opcjonalnie, dom. 8000)
 # Kilka części jednej klasy: gear_big#1, gear_big#2 ... (gear_big = gear_big#1)
 
 name: "Etap 1 — silnik + driving_gear + koło (duża tarcza)"

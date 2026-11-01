@@ -1,0 +1,76 @@
+# Etap 3 dla uczniów: pełna przekładnia — 6 kół, 6 stopni po 1:4,
+# przełożenie 1:4096 (8000 obr/min -> ~1.95 obr/min).
+# Łańcuch: driving_gear -> duża tarcza koła 1, dalej zębnik koła n ->
+# duża tarcza koła n+1. Wałek A: koła 1, 3, 5 + short_spacer;
+# wałek B: koła 2, 4, 6 + long_spacer (jak w etap_pelny).
+# Sekcje feedbacku: pole "group" (kolejność jak tutaj).
+# Złożenie: wymaga analizy 3D (AprilTag na >= 2 zdjęciach).
+
+name: "Stage 3 — full gear transmission (1:4096)"
+description: "Six gear stages: the driving gear drives the large wheel of gear 1, then the small gear of each gear drives the large wheel of the next one. Gears 1, 3, 5 and the short spacer share one shaft; gears 2, 4, 6 and the long spacer share the other."
+
+motor_rpm: 8000
+
+parts:
+  engine: 1
+  driving_gear: 1
+  gear_big: 6
+  short_spacer: 1
+  long_spacer: 1
+
+relations:
+  # (a) spacery
+  - same_axis: [gear_big#1, short_spacer]
+    group: "(a) Spacers"
+    description: "short spacer on the shaft of gears 1, 3, 5"
+  - same_axis: [gear_big#2, long_spacer]
+    group: "(a) Spacers"
+    description: "long spacer on the shaft of gears 2, 4, 6"
+
+  # (b) koła: wałki i zazębienia
+  - adjacent: [gear_big#1, gear_big#3]
+    max_gap_mm: 2.0
+    group: "(b) Gears and meshing"
+    description: "gears 1 and 3 side by side on one shaft"
+  - adjacent: [gear_big#3, gear_big#5]
+    max_gap_mm: 2.0
+    group: "(b) Gears and meshing"
+    description: "gears 3 and 5 side by side on one shaft"
+  - adjacent: [gear_big#2, gear_big#4]
+    max_gap_mm: 2.0
+    group: "(b) Gears and meshing"
+    description: "gears 2 and 4 side by side on one shaft"
+  - adjacent: [gear_big#4, gear_big#6]
+    max_gap_mm: 2.0
+    group: "(b) Gears and meshing"
+    description: "gears 4 and 6 side by side on one shaft"
+  - mesh: [driving_gear, gear_big#1]
+    sections: [main, big]
+    group: "(b) Gears and meshing"
+    description: "driving gear → large wheel of gear 1"
+  - mesh: [gear_big#1, gear_big#2]
+    sections: [pinion, big]
+    group: "(b) Gears and meshing"
+    description: "small gear of gear 1 → large wheel of gear 2"
+  - mesh: [gear_big#2, gear_big#3]
+    sections: [pinion, big]
+    group: "(b) Gears and meshing"
+    description: "small gear of gear 2 → large wheel of gear 3"
+  - mesh: [gear_big#3, gear_big#4]
+    sections: [pinion, big]
+    group: "(b) Gears and meshing"
+    description: "small gear of gear 3 → large wheel of gear 4"
+  - mesh: [gear_big#4, gear_big#5]
+    sections: [pinion, big]
+    group: "(b) Gears and meshing"
+    description: "small gear of gear 4 → large wheel of gear 5"
+  - mesh: [gear_big#5, gear_big#6]
+    sections: [pinion, big]
+    group: "(b) Gears and meshing"
+    description: "small gear of gear 5 → large wheel of gear 6"
+
+  # (c) przełożenie
+  - speed: output
+    ratio: 4096
+    group: "(c) Output speed"
+    description: "overall speed reduction 1:4096"

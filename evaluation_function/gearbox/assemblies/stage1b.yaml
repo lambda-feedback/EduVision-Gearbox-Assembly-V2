@@ -1,0 +1,19 @@
+﻿# Etap 1b dla uczniów: silnik z driving_gear, oba spacery i dwa koła
+# STOJĄCE na krawędzi. Złożenie nieistotne, ale relacja "upright"
+# wymaga analizy 3D: AprilTag na >= 2 zdjęciach z różnych kątów.
+
+name: "Stage 1b — motor, spacers and two standing gears"
+description: "The photos show the motor with the driving gear on its shaft, one long spacer, one short spacer and two gears standing upright. No assembly required; no other parts allowed."
+
+parts:
+  engine: 1
+  driving_gear: 1
+  long_spacer: 1
+  short_spacer: 1
+  gear_big: 2
+
+relations:
+  - upright: gear_big#1
+    description: "first gear stands upright"
+  - upright: gear_big#2
+    description: "second gear stands upright"

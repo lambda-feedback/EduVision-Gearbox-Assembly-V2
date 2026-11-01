@@ -144,6 +144,23 @@ SHAFT_MAX_COST_RATIO = 1.3   # przyjmij, jeśli koszt wzrósł najwyżej tyle
 # niej niezależnie od własnej osi (np. krótki spacer — jego orientacja
 # z sylwetki jest słabo określona).
 SHAFT_ATTACH_MAX_OFFSET_MM = 2.5
+# Części o słabo określonej osi (spacery: krótki walec, sylwetka prawie
+# symetryczna) dołączają tak samo do osi POJEDYNCZEGO koła — wałek z jednym
+# kołem i spacerem nie tworzy grupy z warunku zgodnych osi.
+SHAFT_WEAK_AXIS_CLASS_IDS = {0, 1}
+# Wspólna oś grupy odchylona od poziomu najwyżej o SHAFT_LEVEL_START_MAX_DEG
+# jest dopasowywana też jako dokładnie pozioma (oś w płaszczyźnie
+# podstawy). Osie silnika i wałków leżą równolegle do podstawy, a maska
+# silnika zasłoniętego płytkami ramy daje pozorne pochylenie ~7-8°.
+# Oś pozioma jest przyjmowana, gdy jej koszt jest najwyżej
+# SHAFT_LEVEL_MAX_COST_RATIO razy koszt osi swobodnej.
+SHAFT_LEVEL_START_MAX_DEG = 20.0
+SHAFT_LEVEL_MAX_COST_RATIO = 1.05
+# Klasa części z grupy mylonej przez model (spacery) na przyjętym wałku:
+# dopasowanie każdego modelu CAD wzdłuż osi wałka; klasa jest zmieniana,
+# gdy koszt obecnej jest co najmniej tyle razy wyższy (długość spacera
+# na wałku jest dobrze określona, a model YOLO myli 5 i 8 mm).
+SHAFT_CLASS_SWITCH_RATIO = 1.3
 
 # Etap 8 — kontrola montażu
 ASSEMBLIES_DIR = PROJECT_DIR / "assemblies"
@@ -171,6 +188,11 @@ GEAR_SECTIONS = {
 }
 # Część napędzająca i części sztywno z nią połączone (PART_MOUNTS).
 DRIVE_SOURCE_CLASS = 5   # engine
+# Prędkość silnika (obr/min) do przeliczenia przełożeń na rpm; etap może
+# podać własną (motor_rpm w YAML). Relacja "speed": domyślna tolerancja
+# wymaganej prędkości (± %).
+MOTOR_RPM = 8000
+CHECK_SPEED_TOL_PCT = 10.0
 
 # Tolerancje kontroli (pomiar 3D ma ~0.5 mm niepewności).
 # Osie w tej przekładni są fizycznie równoległe; kąt mierzony przy słabo
@@ -188,6 +210,9 @@ CHECK_MESH_MIN_OVERLAP_MM = 0.5   # wspólny zakres zębów wzdłuż osi
 # najwyżej tyle (mm); nakładanie się brył ponad CHECK_MAX_PENETRATION_MM
 # to kolizja.
 CHECK_ADJACENT_MAX_GAP_MM = 1.0
+# "upright": część stoi na krawędzi — kąt jej płaszczyzny (tarczy) do
+# podstawy (0° = leży płasko, 90° = stoi) co najmniej 90° - tolerancja.
+CHECK_UPRIGHT_TOL_DEG = 20.0
 CHECK_MAX_PENETRATION_MM = 0.5
 # Klasa uznawana za niepewną, gdy w głosowaniu klasy (etap 7) zwycięzca
 # ma przewagę najwyżej tylu głosów.

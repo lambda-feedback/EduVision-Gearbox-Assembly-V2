@@ -67,6 +67,11 @@ from config import (
     SHAFT_MAX_OFFSET_MM,
     SHAFT_MAX_COST_RATIO,
     SHAFT_ATTACH_MAX_OFFSET_MM,
+    SHAFT_WEAK_AXIS_CLASS_IDS,
+    SHAFT_LEVEL_START_MAX_DEG,
+    SHAFT_LEVEL_MAX_COST_RATIO,
+    SHAFT_CLASS_SWITCH_RATIO,
+    GEAR_SECTIONS,
     PARALLEL_WORKERS,
     CPU_COUNT,
 )
@@ -781,7 +786,28 @@ def attach_to_groups(parts, groups):
         best = int(np.argmin(distances))
         if distances[best] <= SHAFT_ATTACH_MAX_OFFSET_MM:
             result[best][0].append(part)
-    return result
+            grouped.add(part["id"])
+
+    # Spacer na osi pojedynczego koła (koło bez innych części na wałku).
+    anchors = [p for p in parts if p["id"] not in grouped
+               and p["class_id"] in GEAR_SECTIONS]
+    single = {}
+    for part in parts:
+        if (part["id"] in grouped
+                or part["class_id"] not in SHAFT_WEAK_AXIS_CLASS_IDS):
+            continue
+        center = np.array(part["center_world_mm"])
+        distances = [point_line_distance(center,
+                                         np.array(a["center_world_mm"]),
+                                         np.array(a["axis_world"]))
+                     for a in anchors]
+        if not distances:
+            continue
+        best = int(np.argmin(distances))
+        if distances[best] <= SHAFT_ATTACH_MAX_OFFSET_MM:
+            single.setdefault(anchors[best]["id"],
+                              ([anchors[best]], [anchors[best]]))[0].append(part)
+    return result + list(single.values())
 
 
 def align_shaft(group, core):
@@ -789,9 +815,28 @@ def align_shaft(group, core):
     Wspólna oś grupy: kierunek (2 kąty) + przesunięcie prostej w poprzek
     (2) + położenie każdej części wzdłuż osi. Kierunek startowy tylko
     z głównych członków (core). Zwrot osi części kierunkowych (np. zębnik
-    gear_big) zachowany z dopasowania indywidualnego.
+    gear_big) zachowany z dopasowania indywidualnego. Oś prawie pozioma
+    jest dopasowywana też jako dokładnie pozioma (SHAFT_LEVEL_*).
     """
     p0, d0 = group_line(core)
+    best = _align_from(group, p0, d0)
+    tilt = math.degrees(math.asin(min(1.0, abs(float(d0[2])))))
+    if tilt <= SHAFT_LEVEL_START_MAX_DEG:
+        level = np.array([d0[0], d0[1], 0.0])
+        level /= np.linalg.norm(level)
+        # Swobodnie ze startu poziomego (omija minimum z pochyloną osią).
+        if tilt > 0.5:
+            free = _align_from(group, p0, level)
+            if free["cost"] < best["cost"]:
+                best = free
+        constrained = _align_from(group, p0, level, level=True)
+        if constrained["cost"] <= best["cost"] * SHAFT_LEVEL_MAX_COST_RATIO:
+            best = constrained
+    return best
+
+
+def _align_from(group, p0, d0, level=False):
+    """level=True: kierunek w płaszczyźnie podstawy (kąt theta = 90°)."""
     signs = [1.0 if np.array(p["axis_world"]) @ d0 >= 0 else -1.0
              for p in group]
     centers = [np.array(p["center_world_mm"]) for p in group]
@@ -800,7 +845,7 @@ def align_shaft(group, core):
     s0 = [float((c - p0) @ d0) for c in centers]
 
     def unpack(x):
-        d = axis_from_angles(x[0], x[1])
+        d = axis_from_angles(math.pi / 2 if level else x[0], x[1])
         line_point = p0 + x[2] * e1 + x[3] * e2
         return d, line_point, x[4:]
 
@@ -827,6 +872,7 @@ def align_shaft(group, core):
         "cost": float(result.fun),
         "axis": d,
         "point": line_point,
+        "level": level,
     }
 
 
@@ -859,6 +905,7 @@ def apply_shaft_alignment(parts, context, pool):
             "members": [p["id"] for p in group],
             "accepted": bool(accepted),
             "cost_ratio": round(ratio, 3),
+            "level": aligned["level"],
             "axis_world": np.round(aligned["axis"], 4).tolist(),
             "point_world_mm": np.round(aligned["point"], 2).tolist(),
         })
@@ -888,9 +935,63 @@ def apply_shaft_alignment(parts, context, pool):
             # Orientację wyznacza teraz cała grupa.
             part["warnings"] = [w for w in part["warnings"]
                                 if not w.startswith("Ambiguous orientation")]
+            recheck_class_on_shaft(part, context)
             part["status"] = ("LOW_CONFIDENCE" if part["warnings"]
                               else "CONFIRMED")
     return shafts
+
+
+def recheck_class_on_shaft(part, context):
+    """
+    Klasa z grupy mylonej przez model (np. krótki/długi spacer) na
+    przyjętym wałku: każdy model CAD z grupy dopasowany wzdłuż osi wałka
+    (oś i położenie w poprzek są już pewne, zostaje przesunięcie wzdłuż).
+    Zmiana klasy, gdy obecna pasuje wyraźnie gorzej
+    (SHAFT_CLASS_SWITCH_RATIO).
+    """
+    group = class_group(part["class_id"])
+    if len(group) < 2:
+        return
+    models, images, cameras, cache = context
+    center = np.array(part["center_world_mm"])
+    axis = np.array(part["axis_world"])
+    offsets = np.arange(-6.0, 6.01, 0.25)
+    fits = {}
+    for class_id in sorted(group):
+        problem = (problem_of(part, context) if class_id == part["class_id"]
+                   else MultiViewProblem(part["_obs"], images, cameras,
+                                         models[class_id], cache))
+        fits[class_id] = min(
+            ((problem.evaluate(center + axis * s, axis), center + axis * s,
+              problem) for s in offsets),
+            key=lambda f: f[0][0])
+    costs = {CLASS_NAMES[c]: round(f[0][0], 4) for c, f in fits.items()}
+    best = min(fits, key=lambda c: fits[c][0][0])
+    current = fits[part["class_id"]][0][0]
+    part["class_shaft_check"] = {"cad_fit_cost": costs}
+    if (best == part["class_id"]
+            or current < fits[best][0][0] * SHAFT_CLASS_SWITCH_RATIO):
+        return
+
+    (total, ious, below), new_center, problem = fits[best]
+    old = part["class_name"]
+    part["class_id"] = best
+    part["class_name"] = CLASS_NAMES[best]
+    part["_problem"] = problem
+    part["center_world_mm"] = np.round(new_center, 2).tolist()
+    part["T_world_part_mm"] = np.round(
+        T_camera_part(new_center, axis, models[best]), 4).tolist()
+    part["fit"].update({
+        "mean_iou": round(float(np.mean(ious)), 3),
+        "per_view_iou": {img: round(i, 3) for img, i in
+                         zip(part["images"], ious)},
+        "cost": round(total, 4),
+        "below_plane_mm": round(below, 2),
+    })
+    part["class_shaft_check"]["switched_from"] = old
+    part["warnings"].append(
+        f"Class changed {old} -> {part['class_name']}: its CAD model fits "
+        f"the images on the shaft much better")
 
 
 # --------------------------------------------------------------------------

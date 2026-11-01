@@ -1,0 +1,22 @@
+# Etap 2 dla uczniów: wyjście przekładni ~2000 obr/min przy silniku
+# 8000 obr/min -> driving_gear (12 z.) musi napędzać DUŻĄ tarczę (48 z.)
+# koła: 8000 * 12/48 = 2000. Long spacer na wałku koła.
+# Złożenie: wymaga analizy 3D (AprilTag na >= 2 zdjęciach).
+
+name: "Stage 2 — one gear stage (about 2000 rpm)"
+description: "Motor at 8000 rpm; the gear driven by the motor must rotate at about 2000 rpm. The long spacer sits on the same shaft as the gear."
+
+motor_rpm: 8000
+
+parts:
+  engine: 1
+  driving_gear: 1
+  gear_big: 1
+  long_spacer: 1
+
+relations:
+  - speed: output
+    rpm: 2000
+    description: "output speed about 2000 rpm"
+  - same_axis: [gear_big, long_spacer]
+    description: "long spacer on the same shaft as the gear"

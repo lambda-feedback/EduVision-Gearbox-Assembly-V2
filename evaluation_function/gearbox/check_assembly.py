@@ -23,6 +23,15 @@ Format etapu (YAML):
       - adjacent: [gear_big#1, gear_big#2]   # opcjonalnie max_gap_mm
       - driven: gear_big#2
       - not_driven: gear_big#2
+      - upright: gear_big#1         # stoi na krawędzi (opcj. tolerance_deg)
+      - speed: gear_big#2           # prędkość obrotowa (silnik: motor_rpm)
+        rpm: 2000                   #   wymagana, ± tolerance_pct (dom. 10)
+        # albo min_rpm / max_rpm; opcjonalnie direction: same | opposite
+      - speed: output               # j.w. dla wyjścia przekładni
+        ratio: 1024                 #   (najwolniejsze napędzane koło);
+                                    #   ratio = przełożenie zamiast rpm
+    Każda relacja może mieć "group" — nagłówek sekcji w feedbacku.
+    motor_rpm: 8000                 # opcjonalnie (domyślnie config.MOTOR_RPM)
     Każda relacja może mieć "description".
     Części tej samej klasy: klasa#1, klasa#2, ... (klasa = klasa#1).
 
@@ -44,7 +53,7 @@ import itertools
 import json
 import math
 import sys
-from collections import Counter, deque
+from collections import Counter, defaultdict, deque
 from pathlib import Path
 
 import numpy as np
@@ -69,7 +78,10 @@ from config import (
     CHECK_MESH_MIN_OVERLAP_MM,
     CHECK_ADJACENT_MAX_GAP_MM,
     CHECK_MAX_PENETRATION_MM,
+    CHECK_UPRIGHT_TOL_DEG,
     CHECK_UNCERTAIN_VOTE_MARGIN,
+    MOTOR_RPM,
+    CHECK_SPEED_TOL_PCT,
 )
 
 OK, ERROR, UNKNOWN = "OK", "ERROR", "CANNOT ASSESS"
@@ -81,7 +93,12 @@ CLASS_IDS = {name: cid for cid, name in CLASS_NAMES.items()}
 PART_CLASSES = [name for cid, name in CLASS_NAMES.items()
                 if cid not in IGNORED_CLASS_IDS
                 and cid not in FEATURE_CLASS_PARENTS]
-RELATION_TYPES = ("mesh", "same_axis", "adjacent", "driven", "not_driven")
+RELATION_TYPES = ("mesh", "same_axis", "adjacent", "driven", "not_driven",
+                  "upright", "speed")
+# "speed: output" — wyjście przekładni: najwolniej obracające się koło
+# napędzane przez silnik (koniec łańcucha), bez wskazywania konkretnej części.
+OUTPUT_ROLE = "output"
+DRIVE_EXCLUDED_OUTPUT = ("engine", "driving_gear")
 
 
 # --------------------------------------------------------------------------
@@ -182,6 +199,18 @@ def check_mesh_sections(a, sa, b, sb):
     }
 
 
+def check_upright(part, tolerance):
+    """Kąt tarczy do podstawy = kąt osi części do pionu (Z świata)."""
+    _, axis = part_axis(part)
+    tilt = axis_angle_deg(axis, np.array([0.0, 0.0, 1.0]))
+    ok = tilt >= 90.0 - tolerance
+    info = {"tilt_deg": round(tilt, 1), "tolerance_deg": tolerance}
+    if not ok:
+        info["detail"] = (f"not standing upright ({tilt:.0f}° to the base, "
+                          f"expected about 90°)")
+    return ok, info
+
+
 def best_mesh(a, b, a_section=None, b_section=None):
     """Najlepsza para sekcji uzębienia (lub wskazana) — (ok, pomiar)."""
     a_section = None if a_section in (None, "any") else a_section
@@ -274,8 +303,10 @@ def drive_train(parts, meshes):
         if p["id"] in speed:
             w = speed[p["id"]]
             entry.update({
-                "speed_vs_motor": round(abs(w), 4),
+                # Cyfry znaczące, nie miejsca po przecinku: 1/4096 = 0.000244.
+                "speed_vs_motor": float(f"{abs(w):.6g}"),
                 "reduction": round(1 / abs(w), 2),
+                "rpm": float(f"{MOTOR_RPM * abs(w):.4g}"),
                 "direction": "same as motor" if w > 0
                              else "opposite to motor",
                 "driven_by": links.get(p["id"]),
@@ -357,9 +388,17 @@ def load_spec(path):
         if name not in CLASS_IDS:
             raise ValueError(f"unknown class '{name}' (available: "
                              f"{', '.join(PART_CLASSES)})")
+    spec["motor_rpm"] = float(spec.get("motor_rpm", MOTOR_RPM))
     roles = set(role_names(spec))
     for rel in spec["relations"]:
-        _, rel_roles = parse_relation(rel)
+        kind, rel_roles = parse_relation(rel)
+        if kind == "speed":
+            if not any(k in rel for k in ("rpm", "ratio", "min_rpm",
+                                          "max_rpm")):
+                raise ValueError("'speed' needs rpm, ratio or "
+                                 "min_rpm / max_rpm")
+            if rel.get("direction") not in (None, "same", "opposite"):
+                raise ValueError("'speed' direction must be same or opposite")
         for role in rel_roles:
             if role not in roles:
                 raise ValueError(
@@ -384,23 +423,89 @@ def parse_relation(rel):
     if kind is None:
         raise ValueError(f"Unknown relation: {rel}")
     value = rel[kind]
+    if kind == "speed" and value == OUTPUT_ROLE:
+        return kind, []
     roles = [normalize_role(r) for r in
              (value if isinstance(value, list) else [value])]
     return kind, roles
 
 
-def evaluate_relation(rel, binding, by_id, driven_ids):
+def output_part(drive, by_id):
+    """Wyjście przekładni: najwolniejsze napędzane koło (poza silnikiem)."""
+    gears = [d for d in drive.values()
+             if d["class_name"] not in DRIVE_EXCLUDED_OUTPUT]
+    if not gears:
+        return None
+    return by_id[min(gears, key=lambda d: d["speed_vs_motor"])["part"]]
+
+
+def fmt_rpm(rpm):
+    """2000 -> "2000", 7.8125 -> "7.81", 1.953 -> "1.95"."""
+    return f"{rpm:.0f}" if rpm >= 100 else f"{rpm:.3g}"
+
+
+def check_speed(rel, part, drive, motor_rpm):
+    info = {"motor_rpm": motor_rpm}
+    if part is None:
+        info["detail"] = "no gear is driven by the motor"
+        return False, info
+    entry = drive.get(part["id"])
+    rpm = motor_rpm * entry["speed_vs_motor"] if entry else 0.0
+    info.update({"part": part["id"], "rpm": float(f"{rpm:.4g}")})
+    if "rpm" in rel or "ratio" in rel:
+        tol = float(rel.get("tolerance_pct", CHECK_SPEED_TOL_PCT))
+        target = (rel["rpm"] if "rpm" in rel
+                  else motor_rpm / float(rel["ratio"]))
+        low = target * (1 - tol / 100)
+        high = target * (1 + tol / 100)
+        expected = (f"about {rel['rpm']:g} rpm (±{tol:g}%)" if "rpm" in rel
+                    else f"ratio about 1:{float(rel['ratio']):g} "
+                         f"({fmt_rpm(target)} rpm, ±{tol:g}%)")
+    else:
+        low = float(rel.get("min_rpm", 0))
+        high = float(rel.get("max_rpm", math.inf))
+        expected = (f"{low:g}–{high:g} rpm" if "max_rpm" in rel
+                    else f"at least {low:g} rpm")
+    info.update({"min_rpm": float(f"{low:.4g}"),
+                 "max_rpm": float(f"{high:.4g}")})
+    if entry is None:
+        info["detail"] = f"not driven by the motor, expected {expected}"
+        return False, info
+    info["direction"] = entry["direction"]
+    if not low <= rpm <= high:
+        info["detail"] = (f"rotates at {fmt_rpm(rpm)} rpm (ratio "
+                          f"1:{entry['reduction']:g}), expected {expected}")
+        return False, info
+    wanted = rel.get("direction")
+    if wanted and not entry["direction"].startswith(wanted):
+        info["detail"] = (f"rotates {entry['direction']}, expected "
+                          f"{wanted} {'as' if wanted == 'same' else 'to'} "
+                          f"the motor")
+        return False, info
+    return True, info
+
+
+def evaluate_relation(rel, binding, by_id, drive, motor_rpm=MOTOR_RPM):
+    """drive: {id części napędzanej: wpis z drive_train()}."""
     kind, roles = parse_relation(rel)
     missing = [r for r in roles if binding.get(r) is None]
-    base = {"type": kind, "roles": roles,
+    base = {"type": kind, "roles": roles or [OUTPUT_ROLE],
             "parts": [binding.get(r) for r in roles],
-            "description": rel.get("description", "")}
+            "description": rel.get("description", ""),
+            "group": rel.get("group", "")}
     if missing:
         return {**base, "result": ERROR,
                 "detail": f"missing part: {', '.join(missing)}"}
     parts = [by_id[binding[r]] for r in roles]
 
-    if kind == "mesh":
+    if kind == "speed":
+        if not roles:
+            output = output_part(drive, by_id)
+            parts = [output] if output else []
+            base["parts"] = [p["id"] for p in parts]
+        ok, info = check_speed(rel, parts[0] if parts else None, drive,
+                               motor_rpm)
+    elif kind == "mesh":
         sections = rel.get("sections") or [None, None]
         ok, info = best_mesh(parts[0], parts[1], sections[0], sections[1])
     elif kind == "same_axis":
@@ -409,12 +514,15 @@ def evaluate_relation(rel, binding, by_id, driven_ids):
         ok, info = check_adjacent(parts[0], parts[1],
                                   rel.get("max_gap_mm",
                                           CHECK_ADJACENT_MAX_GAP_MM))
+    elif kind == "upright":
+        ok, info = check_upright(parts[0], rel.get("tolerance_deg",
+                                                   CHECK_UPRIGHT_TOL_DEG))
     elif kind == "driven":
-        ok, info = parts[0]["id"] in driven_ids, {}
+        ok, info = parts[0]["id"] in drive, {}
         if not ok:
             info["detail"] = "not driven by the motor"
     else:  # not_driven
-        ok, info = parts[0]["id"] not in driven_ids, {}
+        ok, info = parts[0]["id"] not in drive, {}
         if not ok:
             info["detail"] = "rotates although it should not"
 
@@ -423,14 +531,28 @@ def evaluate_relation(rel, binding, by_id, driven_ids):
             "detail": info.get("detail", ""), "uncertain_parts": uncertain}
 
 
-def bind_roles(roles, relations, parts, driven_ids):
+def bind_roles(roles, relations, parts, drive, motor_rpm=MOTOR_RPM):
     """Przypisanie ról do części maksymalizujące liczbę spełnionych relacji."""
     by_id = {p["id"]: p for p in parts}
-    options = []
+    # Przypisania w obrębie klasy: permutacje części (bez powtórzeń). Rola
+    # bez części (None) tylko, gdy części brakuje — przypisanie części
+    # zamiast None nigdy nie obniża wyniku (relacja z brakującą częścią
+    # i tak jest błędem), a przy 6 kołach pełny iloczyn z None to setki
+    # tysięcy kombinacji zamiast 720.
+    by_class = defaultdict(list)
     for role in roles:
-        cls = role.split("#")[0]
-        options.append([p["id"] for p in parts if p["class_name"] == cls]
-                       + [None])
+        by_class[role.split("#")[0]].append(role)
+    class_roles, class_options = [], []
+    for cls, cls_roles in by_class.items():
+        ids = [p["id"] for p in parts if p["class_name"] == cls]
+        pool = ids + [None] * max(0, len(cls_roles) - len(ids))
+        class_roles.append(cls_roles)
+        # Kolejność jak w spisie części, brak (None) na końcu — przy remisie
+        # brakuje ostatniego koła łańcucha, nie pierwszego.
+        order = {pid: i for i, pid in enumerate(ids)}
+        class_options.append(sorted(
+            set(itertools.permutations(pool, len(cls_roles))),
+            key=lambda c: [order.get(x, len(ids)) for x in c]))
     # Wynik relacji zależy tylko od części przypisanych do jej ról — liczony
     # raz dla każdego układu tych części (kombinacji przypisań są dziesiątki
     # tysięcy, a geometria relacji jest kosztowna).
@@ -441,15 +563,14 @@ def bind_roles(roles, relations, parts, driven_ids):
         key = (i, tuple(binding.get(r) for r in relation_roles[i]))
         if key not in cache:
             cache[key] = evaluate_relation(relations[i], binding, by_id,
-                                           driven_ids)
+                                           drive, motor_rpm)
         return cache[key]
 
     best = None
-    for combo in itertools.product(*options):
-        used = [c for c in combo if c is not None]
-        if len(used) != len(set(used)):
-            continue
-        binding = dict(zip(roles, combo))
+    for combo in itertools.product(*class_options):
+        binding = {role: pid for cls_roles, assigned in zip(class_roles, combo)
+                   for role, pid in zip(cls_roles, assigned)}
+        used = [pid for pid in binding.values() if pid is not None]
         results = [relation_result(i, binding)
                    for i in range(len(relations))]
         # Pół punktu za zazębienie istniejące, ale inną sekcją — wtedy
@@ -464,7 +585,7 @@ def bind_roles(roles, relations, parts, driven_ids):
 
 
 def evaluate_assembly(spec, inventory, uncertain, uncertain_groups, parts,
-                      has_3d, driven_ids):
+                      has_3d, drive):
     kind = KIND_ASSEMBLY if spec["relations"] else KIND_PARTS_ONLY
     allow_extra = bool(spec.get("allow_extra", False))
 
@@ -517,7 +638,8 @@ def evaluate_assembly(spec, inventory, uncertain, uncertain_groups, parts,
               "description": spec.get("description", ""),
               "source": SOURCE_3D if has_3d else SOURCE_DETECTIONS,
               "counts": counts, "allow_extra": allow_extra,
-              "relations": [], "binding": {}}
+              "relations": [], "binding": {},
+              "motor_rpm": spec["motor_rpm"]}
 
     if spec["relations"] and not has_3d:
         reasons.append("stage requires 3D analysis: AprilTag in at least "
@@ -527,7 +649,7 @@ def evaluate_assembly(spec, inventory, uncertain, uncertain_groups, parts,
         if spec["relations"]:
             binding, relations = bind_roles(role_names(spec),
                                             spec["relations"], parts,
-                                            driven_ids)
+                                            drive, spec["motor_rpm"])
             result["binding"] = binding
             result["relations"] = relations
             for r in relations:
@@ -573,7 +695,7 @@ def main():
 
     meshes = find_all_meshes(parts) if has_3d else []
     train = drive_train(parts, meshes) if has_3d else []
-    driven_ids = {d["part"] for d in train if d["driven"]}
+    drive = {d["part"]: d for d in train if d["driven"]}
 
     spec_paths = ([Path(a) for a in sys.argv[1:]] if len(sys.argv) > 1
                   else sorted(list(ASSEMBLIES_DIR.glob("*.yaml"))
@@ -584,7 +706,7 @@ def main():
             spec = load_spec(path)
             result = evaluate_assembly(spec, inventory, uncertain,
                                        uncertain_groups, parts, has_3d,
-                                       driven_ids)
+                                       drive)
         except (ValueError, yaml.YAMLError) as exc:
             result = {"name": path.stem, "verdict": UNKNOWN, "kind": "?",
                       "reasons": [f"error in the stage file: {exc}"],
@@ -630,7 +752,8 @@ def main():
             print("  none")
         print("\n=== DRIVE ===")
         for d in train:
-            state = (f"rotates 1:{d['reduction']}" if d["driven"]
+            state = (f"rotates 1:{d['reduction']} ({d['rpm']:g} rpm at "
+                     f"{MOTOR_RPM} rpm motor)" if d["driven"]
                      else "does not rotate")
             print(f"  {d['part']:<4} {d['class_name']:<13} {state}")
 

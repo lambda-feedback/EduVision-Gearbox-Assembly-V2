@@ -1,0 +1,13 @@
+# Etap 1 dla uczniów: silnik z driving_gear + dwa koła, złożenie
+# nieistotne (brak relacji = sprawdzana tylko liczba sztuk).
+# 1 zdjęcie: spis z detekcji (AprilTag niewymagany);
+# 2 zdjęcia z AprilTagiem: spis z analizy 3D (pewniejszy).
+# Spacery i inne części = nadmiar -> NIEZALICZONE.
+
+name: "Stage 1 — motor with driving gear and two gears"
+description: "The photo shows the motor with the driving gear on its shaft and two gears. No assembly required; no other parts allowed."
+
+parts:
+  engine: 1
+  driving_gear: 1
+  gear_big: 2

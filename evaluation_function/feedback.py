@@ -66,6 +66,11 @@ def _ul(items):
     return "\n".join(f"- {i}" for i in items if i)
 
 
+def _rpm(value):
+    """2000 -> "2000", 7.8125 -> "7.81", 1.953 -> "1.95"."""
+    return f"{value:.0f}" if value >= 100 else f"{value:.3g}"
+
+
 def _mark(result):
     return RESULT_MARK.get(result, "⚠️")
 
@@ -83,6 +88,9 @@ def _relation_line(rel):
     if rel["type"] == "mesh" and "center_distance_mm" in measurement:
         extra.append(f"axis distance {measurement['center_distance_mm']:.1f}"
                      f" mm, required {measurement['required_mm']:.1f} mm")
+    if (rel["type"] == "speed" and rel.get("result") == OK
+            and "rpm" in measurement):
+        extra.append(f"{_rpm(measurement['rpm'])} rpm")
     if rel.get("uncertain_parts"):
         extra.append("uncertain: " + _e(", ".join(rel["uncertain_parts"])))
     suffix = f" *({'; '.join(extra)})*" if extra else ""
@@ -93,6 +101,26 @@ def _count_line(count):
     note = " *(uncertain)*" if count.get("uncertain") else ""
     return (f"{_mark(count['result'])} {_code(count['class'])}: found "
             f"**{count['found']}**, expected **{count['expected']}**{note}")
+
+
+def _grouped_relations(relations):
+    """Relacje w sekcjach wg pola "group" (kolejność jak w YAML); pierwsza
+    sekcja z błędem oznaczona jako miejsce, od którego zacząć poprawki."""
+    groups = {}
+    for rel in relations:
+        groups.setdefault(rel.get("group") or "Other connections",
+                          []).append(rel)
+    lines, first_error = [], True
+    for title, rels in groups.items():
+        passed = sum(r.get("result") == OK for r in rels)
+        ok = passed == len(rels)
+        hint = ""
+        if not ok and first_error:
+            hint, first_error = " — *start here*", False
+        lines += ["", f"**{_e(title)}** {_mark(OK if ok else ERROR)} "
+                      f"{passed}/{len(rels)}{hint}", "",
+                  _ul(_relation_line(r) for r in rels)]
+    return lines
 
 
 def stage_markdown(stage):
@@ -106,9 +134,12 @@ def stage_markdown(stage):
     if stage.get("counts"):
         lines += ["", "**Parts:**", "",
                   _ul(_count_line(c) for c in stage["counts"])]
-    if stage.get("relations"):
+    relations = stage.get("relations") or []
+    if any(r.get("group") for r in relations):
+        lines += _grouped_relations(relations)
+    elif relations:
         lines += ["", "**Connections:**", "",
-                  _ul(_relation_line(r) for r in stage["relations"])]
+                  _ul(_relation_line(r) for r in relations)]
     if stage.get("uncertain"):
         lines += ["", f"*Uncertain: {_e(', '.join(stage['uncertain']))}*"]
     return _block(*lines)
@@ -194,11 +225,19 @@ def parts_markdown(run):
     rotating = sorted((d for d in train if d.get("driven")
                        and d["class_name"] not in ("engine", "driving_gear")),
                       key=lambda d: d.get("reduction") or 0)
+    # Prędkość silnika etapu (motor_rpm w YAML) — rpm części = silnik / przeł.
+    motor_rpm = next((a["motor_rpm"] for a in check.get("assemblies") or []
+                      if a.get("motor_rpm")), None)
     if train:
         if rotating:
-            lines += ["", "**Driven by the motor:**", "", _ul(
+            lines += ["", "**Driven by the motor"
+                      + (f" ({motor_rpm:g} rpm)" if motor_rpm else "")
+                      + ":**", "", _ul(
                 f"{_e(d['part'])} {_code(d['class_name'])}: ratio "
-                f"1:{d['reduction']}, {_e(d.get('direction', ''))}"
+                f"1:{d['reduction']}"
+                + (f" → **{_rpm(motor_rpm * d['speed_vs_motor'])} rpm**"
+                   if motor_rpm else "")
+                + f", {_e(d.get('direction', ''))}"
                 for d in rotating)]
         elif any(d["class_name"] == "engine" for d in train):
             lines += ["", "No gear is driven by the motor."]
