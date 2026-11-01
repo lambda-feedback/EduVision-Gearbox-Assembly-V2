@@ -20,6 +20,8 @@ import sys
 import time
 from pathlib import Path
 
+PROCESS_START = time.time()
+
 
 def peak_memory_mb():
     """Szczytowe zużycie pamięci tego procesu i jego dzieci [MB]."""
@@ -45,6 +47,22 @@ def main():
     from . import feedback, pipeline
     from .attachments import Attacher
 
+    # Postęp na stderr (logi serwera, na bieżąco): gdy platforma przerwie
+    # zgłoszenie, w logach widać ostatni ukończony etap i czasy.
+    rp = pipeline._load_modules()["run_pipeline"]
+    run_step = rp.run_step
+
+    def logged_step(key, module, args, out):
+        step_start = time.time()
+        ok = run_step(key, module, args, out)
+        print(f"[eduvision] step {key} {'ok' if ok else 'FAILED'} "
+              f"{time.time() - step_start:.1f} s "
+              f"(since process start {time.time() - PROCESS_START:.1f} s)",
+              file=sys.stderr, flush=True)
+        return ok
+
+    rp.run_step = logged_step
+
     images = [(name, (job_dir / "images" / name).read_bytes())
               for name in job["images"]]
     params = job["params"]
@@ -57,7 +75,8 @@ def main():
 
     is_correct, items = pipeline.run(images, job["stages"], finish=finish)
     stats = {
-        "seconds": round(time.time() - started, 1),
+        "analysis_seconds": round(time.time() - started, 1),
+        "worker_start_seconds": round(started - PROCESS_START, 1),
         "peak_memory_mb": peak_memory_mb(),
         **info,
     }

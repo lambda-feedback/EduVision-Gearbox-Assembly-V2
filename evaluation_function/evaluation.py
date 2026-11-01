@@ -51,6 +51,11 @@ PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 KILLED_CODES = (-9, 137)
 
 
+def _log(text):
+    """Wpis w logach serwera (stderr — nie koliduje z kanałem RPC)."""
+    print(f"[eduvision] {text}", file=sys.stderr, flush=True)
+
+
 def _error(text):
     return Result(is_correct=False,
                   feedback_items=[("error", f"\n\n{text}\n\n")])
@@ -102,19 +107,20 @@ def _run_in_subprocess(job_dir, images, stage_paths, problems, params):
     limit = float(os.environ.get("EDUVISION_TIME_LIMIT_S", "600"))
     started = time.time()
     try:
-        # Wyjście procesu przechwycone: stdout serwera bywa kanałem RPC.
+        # stdout procesu przechwycony (stdout serwera bywa kanałem RPC);
+        # stderr — postęp etapów — idzie na bieżąco do logów serwera.
         proc = subprocess.run(
             [sys.executable, "-m", "evaluation_function.worker",
              str(job_dir)],
             cwd=str(PACKAGE_ROOT), env=env, stdin=subprocess.DEVNULL,
-            capture_output=True, timeout=limit)
+            stdout=subprocess.PIPE, timeout=limit)
     except subprocess.TimeoutExpired:
         return None, {"status": "timeout", "limit_s": limit,
-                      "seconds": round(time.time() - started, 1)}, ""
+                      "process_seconds": round(time.time() - started, 1)}, ""
 
-    log = (proc.stdout + proc.stderr).decode("utf-8", errors="replace")
+    log = proc.stdout.decode("utf-8", errors="replace")
     stats = {"return_code": proc.returncode,
-             "seconds": round(time.time() - started, 1)}
+             "process_seconds": round(time.time() - started, 1)}
     result_file = job_dir / "result.json"
     if proc.returncode != 0 or not result_file.is_file():
         stats["status"] = ("killed" if proc.returncode in KILLED_CODES
@@ -132,6 +138,8 @@ def evaluation_function(
 ) -> Result:
 
     params = dict(params or {})
+    request_start = time.time()
+    _log("request received")
 
     try:
         stages = inputs.stage_definitions(answer, params)
@@ -142,6 +150,8 @@ def evaluation_function(
         images, problems = inputs.load_images(response)
     except inputs.SubmissionError as exc:
         return _error(feedback._e(exc))
+    download_seconds = round(time.time() - request_start, 1)
+    _log(f"{len(images)} photo(s) downloaded in {download_seconds} s")
 
     job_dir = Path(tempfile.mkdtemp(prefix="job_", dir=_jobs_dir()))
     try:
@@ -162,6 +172,11 @@ def evaluation_function(
     finally:
         shutil.rmtree(job_dir, ignore_errors=True)
 
+    stats["photos"] = len(images)
+    stats["download_seconds"] = download_seconds
+    stats["total_seconds"] = round(time.time() - request_start, 1)
+    _log(f"done: status {stats['status']}, total {stats['total_seconds']} s, "
+         f"peak memory {stats.get('peak_memory_mb')} MB")
     debug = params.get("debug")
     if result is None:
         if stats["status"] == "timeout":
