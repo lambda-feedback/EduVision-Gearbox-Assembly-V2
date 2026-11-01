@@ -29,7 +29,6 @@ Uruchomienie:
 
 import json
 import math
-import os
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -54,6 +53,7 @@ from config import (
     PART_FIT_NEUTRAL_WEIGHT,
     PART_MOUNTS,
     PARALLEL_WORKERS,
+    CPU_COUNT,
     PART_FIT_MAX_EVALS,
     PART_FIT_MIN_IOU_OK,
     PART_FIT_MIN_IOU,
@@ -772,7 +772,7 @@ def main():
     started = time.time()
 
     images = detections_report["images"]
-    workers = max(1, min(len(images), PARALLEL_WORKERS or os.cpu_count()))
+    workers = max(1, min(len(images), PARALLEL_WORKERS or CPU_COUNT))
     # map() zwraca wyniki w kolejności zdjęć — raport identyczny jak
     # przy liczeniu po kolei.
     with ProcessPoolExecutor(max_workers=workers,

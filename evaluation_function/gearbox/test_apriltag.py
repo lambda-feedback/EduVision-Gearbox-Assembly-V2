@@ -1,6 +1,5 @@
 
 import json
-import os
 import shutil
 from pathlib import Path
 
@@ -21,6 +20,7 @@ from config import (
     REJECTED_DIR,
     APRILTAG_REPORT_PATH,
     TAG_DEBUG_DIR,
+    CPU_COUNT,
 )
 
 # Minimalna jakość detekcji.
@@ -74,7 +74,7 @@ def main():
                 families=APRILTAG_FAMILY,
                 # Wątki dzielą pracę nad jednym zdjęciem; wynik detekcji
                 # nie zależy od ich liczby.
-                nthreads=os.cpu_count() or 2,
+                nthreads=CPU_COUNT,
                 quad_decimate=quad_decimate,
                 refine_edges=1,
             ),

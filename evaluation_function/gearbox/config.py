@@ -13,9 +13,27 @@ OUTPUT_DIR = Path(os.environ.get("GEARBOX_OUTPUT_DIR",
                                  PROJECT_DIR / "output"))
 SESSIONS_DIR = PROJECT_DIR / "sessions"
 
+
+
+def _available_cpus():
+    """Procesory dostępne dla tego procesu (w kontenerze os.cpu_count()
+    potrafi zwrócić liczbę procesorów całego serwera)."""
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except AttributeError:          # Windows, macOS
+        return os.cpu_count() or 1
+
+
+CPU_COUNT = _available_cpus()
+
 # Liczba procesów do obliczeń równoległych (dopasowanie CAD, łączenie
-# zdjęć). 0 = liczba wątków procesora. Wynik nie zależy od tej wartości.
+# zdjęć). 0 = CPU_COUNT. Wynik nie zależy od tej wartości.
 PARALLEL_WORKERS = 0
+
+# Zdjęcia wczytywane jednocześnie w pełnej rozdzielczości (EXIF/jakość):
+# każde to ~100+ MB pamięci, więc nie więcej niż kilka naraz.
+IMAGE_READ_THREADS = int(os.environ.get("GEARBOX_IMAGE_THREADS", "0")) \
+    or min(4, CPU_COUNT)
 
 ACCEPTED_DIR = OUTPUT_DIR / "accepted"
 REJECTED_DIR = OUTPUT_DIR / "rejected"

@@ -49,16 +49,21 @@ ENV EDUVISION_WORK_DIR=/tmp/eduvision \
     YOLO_CONFIG_DIR=/tmp/Ultralytics \
     MPLCONFIGDIR=/tmp/matplotlib \
     YOLO_OFFLINE=1 \
-    YOLO_VERBOSE=False \
-	EDUVISION_WORKERS=0
+    YOLO_VERBOSE=False
+
+# Analysis: no worker-process pools (memory x N), a few image threads, and
+# a time limit below FUNCTION_WORKER_SEND_TIMEOUT so the student gets a
+# message instead of a server error.
+ENV EDUVISION_WORKERS=0 \
+    GEARBOX_IMAGE_THREADS=2 \
+    EDUVISION_TIME_LIMIT_S=85
 
 # Function startup configuration.
 ENV FUNCTION_COMMAND="python" \
     FUNCTION_ARGS="-m,evaluation_function.main" \
-    FUNCTION_INTERFACE="file" \
-    FUNCTION_MAX_PROCS="1"
-
-
+    FUNCTION_INTERFACE="rpc" \
+    FUNCTION_RPC_TRANSPORT="stdio" \
+    FUNCTION_WORKER_SEND_TIMEOUT="90s"
 
 # Enable temporarily when investigating cold starts.
 # Remove or override in production after profiling.

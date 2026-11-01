@@ -28,7 +28,6 @@ Uruchomienie:
 
 import json
 import math
-import os
 import sys
 import time
 from collections import Counter, defaultdict
@@ -68,6 +67,7 @@ from config import (
     SHAFT_MAX_COST_RATIO,
     SHAFT_ATTACH_MAX_OFFSET_MM,
     PARALLEL_WORKERS,
+    CPU_COUNT,
 )
 from estimate_part_poses import (
     MaskCache,
@@ -929,7 +929,7 @@ def main():
 
     context = (models, images, cameras, cache)
     # Tyle procesów, ile jest równoległych zadań (części / zdjęcia).
-    workers = max(1, min(PARALLEL_WORKERS or os.cpu_count(),
+    workers = max(1, min(PARALLEL_WORKERS or CPU_COUNT,
                          max(len(strong), len(images))))
     pool = ProcessPoolExecutor(max_workers=workers, initializer=_init_worker,
                                initargs=(images, cameras))

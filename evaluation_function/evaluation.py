@@ -1,33 +1,128 @@
+"""
+EduVision — ocena montażu przekładni ze zdjęć studenta.
+
+    response  zdjęcia (adresy URL / data URI / base64; formaty: inputs.py)
+    answer    etap do sprawdzenia: nazwa etapu dołączonego do funkcji
+              (np. "etap_pelny") albo definicja YAML/JSON (jak
+              assemblies/*.yaml w aplikacji GearBox); lista = wszystkie
+              etapy muszą być zaliczone
+    params    opcjonalnie:
+                stage        etap, gdy answer jest pusty
+                images       ["3d", "3d_top", "top_view", "photos",
+                             "detections"],
+                             true (domyślne) lub false
+                max_photos   ile zdjęć dla "photos"/"detections" (3)
+                image_mode   "upload" (domyślnie) | "inline" | "none"
+                image_folder katalog w magazynie obrazów ("eduvision")
+                debug        true — log analizy, czas i pamięć w feedbacku
+
+Wynik: is_correct = wszystkie etapy ZALICZONE; feedback (Markdown) — ocena,
+powody, części, połączenia, problemy ze zdjęciami, obrazy.
+
+Analiza działa w osobnym procesie (worker.py) z własnym katalogiem
+roboczym: pamięć wraca do systemu po każdym zgłoszeniu, równoległe
+zgłoszenia sobie nie przeszkadzają, a brak pamięci lub przekroczenie czasu
+kończy się komunikatem dla studenta zamiast błędu serwera.
+
+Zmienne środowiskowe:
+    EDUVISION_WORK_DIR      katalog na zadania (domyślnie <temp>/eduvision)
+    EDUVISION_TIME_LIMIT_S  limit czasu jednej analizy (domyślnie 600 s)
+    EDUVISION_SUBPROCESS    "0" — analiza w tym procesie (diagnostyka)
+"""
 
 import json
+import os
+import shutil
+import subprocess
+import sys
 import tempfile
-import traceback
+import time
 from pathlib import Path
 from typing import Any
 
 from lf_toolkit.evaluation import Params, Result
 
-from . import feedback, inputs, pipeline
-from .attachments import Attacher
+from . import feedback, inputs
+
+PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+
+# Kody zakończenia procesu zabitego przez system (SIGKILL — zwykle brak
+# pamięci): -9 (Python na Linuksie) lub 137 (128 + 9, przez powłokę).
+KILLED_CODES = (-9, 137)
 
 
 def _error(text):
-    return Result(
-        is_correct=False,
-        feedback_items=[("error", f"\n\n{text}\n\n")]
-    )
+    return Result(is_correct=False,
+                  feedback_items=[("error", f"\n\n{text}\n\n")])
 
 
-def _format_diagnostics(data):
-    if not data:
-        return "No previous interrupted run detected."
+def _cannot_assess(text):
+    return Result(is_correct=False, feedback_items=[(
+        "error", f"\n\n### ⚠️ CANNOT ASSESS\n\n{text}\n\n")])
 
-    return json.dumps(
-        data,
-        indent=2,
-        ensure_ascii=True,
-        default=str
-    )[-12000:]
+
+def _jobs_dir():
+    folder = Path(os.environ.get("EDUVISION_WORK_DIR",
+                                 Path(tempfile.gettempdir()) / "eduvision"))
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def _debug_item(stats, log=""):
+    lines = ["### Debug", ""]
+    lines += [f"- {key}: `{value}`" for key, value in stats.items()]
+    if log:
+        lines += ["", "```", log[-4000:].replace("```", "'''"), "```"]
+    return ("debug", "\n\n" + "\n".join(lines) + "\n\n")
+
+
+def _run_in_process(images, stage_paths, problems, params):
+    from . import pipeline
+    from .attachments import Attacher
+    return pipeline.run(
+        images, stage_paths,
+        finish=lambda run: feedback.build(run, problems, Attacher(params),
+                                          params))
+
+
+def _run_in_subprocess(job_dir, images, stage_paths, problems, params):
+    (job_dir / "images").mkdir()
+    for name, data in images:
+        (job_dir / "images" / name).write_bytes(data)
+    (job_dir / "job.json").write_text(json.dumps({
+        "images": [name for name, _ in images],
+        "stages": [str(p) for p in stage_paths],
+        "problems": problems,
+        "params": params,
+    }, ensure_ascii=False), encoding="utf-8")
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(PACKAGE_ROOT)] + [p for p in sys.path if p])
+    limit = float(os.environ.get("EDUVISION_TIME_LIMIT_S", "600"))
+    started = time.time()
+    try:
+        # Wyjście procesu przechwycone: stdout serwera bywa kanałem RPC.
+        proc = subprocess.run(
+            [sys.executable, "-m", "evaluation_function.worker",
+             str(job_dir)],
+            cwd=str(PACKAGE_ROOT), env=env, stdin=subprocess.DEVNULL,
+            capture_output=True, timeout=limit)
+    except subprocess.TimeoutExpired:
+        return None, {"status": "timeout", "limit_s": limit,
+                      "seconds": round(time.time() - started, 1)}, ""
+
+    log = (proc.stdout + proc.stderr).decode("utf-8", errors="replace")
+    stats = {"return_code": proc.returncode,
+             "seconds": round(time.time() - started, 1)}
+    result_file = job_dir / "result.json"
+    if proc.returncode != 0 or not result_file.is_file():
+        stats["status"] = ("killed" if proc.returncode in KILLED_CODES
+                           else "error")
+        return None, stats, log
+    result = json.loads(result_file.read_text(encoding="utf-8"))
+    stats.update(result.get("stats", {}), status="ok")
+    return result, stats, log
 
 
 def evaluation_function(
@@ -38,132 +133,52 @@ def evaluation_function(
 
     params = dict(params or {})
 
-    # Read the previous diagnostic report BEFORE starting a new pipeline.
-    # pipeline.run() resets the diagnostic file at the beginning.
-    try:
-        previous_diagnostics = pipeline.read_previous_diagnostics()
-    except Exception as exc:
-        previous_diagnostics = {
-            "diagnostic_read_error": repr(exc)
-        }
-
-    # Load stage definitions.
     try:
         stages = inputs.stage_definitions(answer, params)
-
     except ValueError as exc:
-        return _error(
-            f"Task configuration error: {feedback._e(exc)}"
-        )
+        return _error(f"Task configuration error: {feedback._e(exc)}")
 
-    # Load submitted images.
     try:
         images, problems = inputs.load_images(response)
-
     except inputs.SubmissionError as exc:
         return _error(feedback._e(exc))
 
-    # Run the GearBox pipeline.
+    job_dir = Path(tempfile.mkdtemp(prefix="job_", dir=_jobs_dir()))
     try:
-        with tempfile.TemporaryDirectory(
-            prefix="eduvision_stages_"
-        ) as folder:
+        stage_paths = []
+        (job_dir / "stages").mkdir()
+        for index, (name, text) in enumerate(stages):
+            path = job_dir / "stages" / f"{index:02d}_{name}"
+            path.write_text(text, encoding="utf-8")
+            stage_paths.append(path)
 
-            stage_paths = []
+        if os.environ.get("EDUVISION_SUBPROCESS", "1") == "0":
+            is_correct, items = _run_in_process(images, stage_paths,
+                                                problems, params)
+            return Result(is_correct=is_correct, feedback_items=items)
 
-            for index, (name, text) in enumerate(stages):
-                path = Path(folder) / f"{index:02d}_{name}"
+        result, stats, log = _run_in_subprocess(
+            job_dir, images, stage_paths, problems, params)
+    finally:
+        shutil.rmtree(job_dir, ignore_errors=True)
 
-                path.write_text(
-                    text,
-                    encoding="utf-8"
-                )
+    debug = params.get("debug")
+    if result is None:
+        if stats["status"] == "timeout":
+            text = (f"The analysis took too long (over "
+                    f"{stats['limit_s']:.0f} s) and was stopped. Please try "
+                    "again, with 4-10 photos.")
+        elif stats["status"] == "killed":
+            text = ("The analysis ran out of memory on the server and was "
+                    "stopped. Please try again, with 4-10 photos.")
+        else:
+            text = "The analysis failed because of an internal error."
+        res = _cannot_assess(text)
+        if debug:
+            res.add_feedback(*_debug_item(stats, log))
+        return res
 
-                stage_paths.append(path)
-
-            # Diagnostic logging is handled directly by pipeline.py.
-            # Do NOT pass diagnostics=[] here.
-            run_result = pipeline.run(
-                images,
-                stage_paths
-            )
-
-        # Current execution summary.
-        steps = run_result.get("steps") or []
-
-        step_text = "\n".join(
-            f"- {key}: ok={ok}, duration={seconds}s"
-            for key, ok, seconds in steps
-        )
-
-        log = (run_result.get("log") or "")[-6000:]
-        log = log.replace("```", "'''")
-
-        previous_text = _format_diagnostics(
-            previous_diagnostics
-        )
-
-        debug = (
-            "### PIPELINE DIAGNOSTICS\n\n"
-
-            "**Current run:**\n\n"
-            f"- Mode: `{run_result.get('mode')}`\n"
-            f"- Failed step: `{run_result.get('failed_step')}`\n"
-            f"- Executor: `{run_result.get('executor')}`\n"
-            f"- Duration: `{run_result.get('seconds')}` seconds\n\n"
-
-            "### Current step history\n\n"
-            f"```text\n{step_text or 'No steps recorded.'}\n```\n\n"
-
-            "### Previous interrupted run\n\n"
-            f"```json\n{previous_text}\n```\n\n"
-
-            "### Current captured log\n\n"
-            f"```text\n{log}\n```"
-        )
-
-        return Result(
-            is_correct=False,
-            feedback_items=[
-                ("debug", debug)
-            ]
-        )
-
-    except Exception:
-        error = traceback.format_exc()
-
-        # Read the diagnostic file from the failed current execution.
-        try:
-            failed_diagnostics = pipeline.read_previous_diagnostics()
-
-        except Exception as exc:
-            failed_diagnostics = {
-                "diagnostic_read_error": repr(exc)
-            }
-
-        diagnostic_text = _format_diagnostics(
-            failed_diagnostics
-        )
-
-        previous_text = _format_diagnostics(
-            previous_diagnostics
-        )
-
-        return Result(
-            is_correct=False,
-            feedback_items=[
-                (
-                    "debug_error",
-                    "### PIPELINE ERROR\n\n"
-
-                    "### Current execution diagnostics\n\n"
-                    f"```json\n{diagnostic_text}\n```\n\n"
-
-                    "### Previous execution diagnostics\n\n"
-                    f"```json\n{previous_text}\n```\n\n"
-
-                    "### Python traceback\n\n"
-                    f"```text\n{error[-8000:]}\n```"
-                )
-            ]
-        )
+    items = [tuple(item) for item in result["items"]]
+    if debug:
+        items.append(_debug_item(stats))
+    return Result(is_correct=result["is_correct"], feedback_items=items)

@@ -21,7 +21,6 @@ import csv
 import hashlib
 import json
 import math
-import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -39,6 +38,7 @@ from config import (
     IMAGE_INFO_JSON_PATH,
     IMAGE_INFO_CSV_PATH,
     SENSOR_WIDTH_MM,
+    IMAGE_READ_THREADS,
 )
 
 # Identyfikatory podkatalogów EXIF.
@@ -522,8 +522,9 @@ def main():
             return None, exc
 
     # Zdjęcia analizowane równolegle (dekodowanie JPEG w OpenCV zwalnia
-    # blokadę Pythona); map() zachowuje kolejność zdjęć w raporcie.
-    with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
+    # blokadę Pythona); map() zachowuje kolejność zdjęć w raporcie. Wątków
+    # niewiele — każde zdjęcie w pełnej rozdzielczości to ~100+ MB.
+    with ThreadPoolExecutor(max_workers=IMAGE_READ_THREADS) as pool:
         outcomes = list(pool.map(safe_inspect, image_files))
 
     for image_path, (record, error) in zip(image_files, outcomes):

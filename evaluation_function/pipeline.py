@@ -27,148 +27,10 @@ import time
 from concurrent.futures import Future, ProcessPoolExecutor
 from functools import partial
 from pathlib import Path
-import traceback
-import uuid
 
 GEARBOX_DIR = Path(__file__).resolve().parent / "gearbox"
 WORK_DIR = Path(os.environ.get("EDUVISION_WORK_DIR",
                                Path(tempfile.gettempdir()) / "eduvision"))
-                               
-                               
-DIAGNOSTIC_FILE = WORK_DIR / "_pipeline_diagnostics.jsonl"
-
-
-RUNTIME_ID_FILE = WORK_DIR / "_runtime_id"
-
-
-def get_runtime_id():
-    WORK_DIR.mkdir(parents=True, exist_ok=True)
-
-    try:
-        return RUNTIME_ID_FILE.read_text(
-            encoding="ascii"
-        ).strip()
-
-    except FileNotFoundError:
-        runtime_id = uuid.uuid4().hex
-
-        try:
-            with open(RUNTIME_ID_FILE, "x", encoding="ascii") as f:
-                f.write(runtime_id)
-
-            return runtime_id
-
-        except FileExistsError:
-            return RUNTIME_ID_FILE.read_text(
-                encoding="ascii"
-            ).strip()
-
-
-
-def _memory_snapshot():
-    """Read available process and container memory statistics."""
-
-    result = {}
-
-    # Docker cgroup v2
-    paths = {
-        "memory_current": "/sys/fs/cgroup/memory.current",
-        "memory_peak": "/sys/fs/cgroup/memory.peak",
-        "memory_max": "/sys/fs/cgroup/memory.max",
-    }
-
-    for name, path in paths.items():
-        try:
-            result[name] = Path(path).read_text().strip()
-        except OSError:
-            pass
-
-    # OOM counters
-    try:
-        events = Path("/sys/fs/cgroup/memory.events").read_text()
-        result["memory_events"] = dict(
-            line.split() for line in events.splitlines()
-        )
-    except (OSError, ValueError):
-        pass
-
-    # Current Python process memory
-    try:
-        status = Path("/proc/self/status").read_text()
-
-        for line in status.splitlines():
-            if line.startswith(("VmRSS:", "VmHWM:")):
-                key, value = line.split(":", 1)
-                result[key] = value.strip()
-
-    except OSError:
-        pass
-
-    return result
-
-
-def _diag_reset():
-    WORK_DIR.mkdir(parents=True, exist_ok=True)
-
-    with open(DIAGNOSTIC_FILE, "w", encoding="utf-8") as file:
-        file.write("")
-
-
-def _diag_write(event, **data):
-    """Write diagnostics immediately to persistent worker storage."""
-
-    record = {
-        "time": time.time(),
-        "pid": os.getpid(),
-        "event": event,
-        "runtime_id": get_runtime_id(),
-        **data,
-    }
-
-    try:
-        with open(DIAGNOSTIC_FILE, "a", encoding="utf-8") as file:
-            file.write(json.dumps(record, default=str) + "\n")
-            file.flush()
-            os.fsync(file.fileno())
-
-    except Exception:
-        pass
-
-
-def read_previous_diagnostics():
-    """Return the previous incomplete pipeline execution."""
-
-    try:
-        if not DIAGNOSTIC_FILE.is_file():
-            return None
-
-        lines = DIAGNOSTIC_FILE.read_text(
-            encoding="utf-8"
-        ).splitlines()
-
-        records = [
-            json.loads(line)
-            for line in lines[-50:]
-            if line.strip()
-        ]
-
-        if not records:
-            return None
-
-        if records[-1].get("event") == "run_end":
-            return None
-
-        return {
-            "records": records,
-            "current_memory": _memory_snapshot(),
-        }
-
-    except Exception as exc:
-        return {
-            "error": repr(exc),
-        }                               
-                               
-                               
 INPUT_DIR = WORK_DIR / "input"
 OUTPUT_DIR = WORK_DIR / "output"
 
@@ -306,7 +168,7 @@ def _reset_work_dir():
         folder.mkdir(parents=True)
 
 
-def run(images, stage_paths, finish=None, diagnostics=None):
+def run(images, stage_paths, finish=None):
     """
     images: [(nazwa pliku, bajty)], stage_paths: pliki YAML etapów.
     Wynik: słownik z raportami etapów (None, gdy etap nie powstał):
@@ -317,15 +179,6 @@ def run(images, stage_paths, finish=None, diagnostics=None):
     w output_dir są jeszcze aktualne); run() zwraca wtedy jego wartość.
     """
     with _LOCK:
-        _diag_reset()
-
-        _diag_write(
-            "run_start",
-            memory=_memory_snapshot(),
-            images=len(images),
-            stages=len(stage_paths),
-        )
-
         modules = _load_modules()
         config, rp = modules["config"], modules["run_pipeline"]
         _reset_work_dir()
@@ -336,12 +189,6 @@ def run(images, stage_paths, finish=None, diagnostics=None):
         steps, failed, mode = [], None, MODE_3D
         saved_argv = sys.argv
         started = time.time()
-        def record(event, **data):
-            if diagnostics is not None:
-                diagnostics.append({
-                    "event": event,
-                    **data
-                })
         with _captured_stdout() as log:
             try:
                 plan = [s for s in rp.STEPS if s[0] != "view"]
@@ -349,51 +196,10 @@ def run(images, stage_paths, finish=None, diagnostics=None):
                     key, _, module, args = plan.pop(0)
                     if module == "check_assembly":
                         args = stage_args
-
-                    record("step_start", step=key)
-
-                    _diag_write(
-                        "step_start",
-                        step=key,
-                        memory=_memory_snapshot(),
-                    )
-
                     step_start = time.time()
-
-                    try:
-                        ok = rp.run_step(key, module, args, OUTPUT_DIR)
-
-                    except Exception:
-                        import traceback
-
-                        _diag_write(
-                            "step_exception",
-                            step=key,
-                            traceback=traceback.format_exc(),
-                            memory=_memory_snapshot(),
-                        )
-                        raise
-
-                    duration = round(time.time() - step_start, 1)
-
-                    steps.append((key, ok, duration))
-
-                    _diag_write(
-                        "step_end",
-                        step=key,
-                        ok=bool(ok),
-                        seconds=duration,
-                        memory=_memory_snapshot(),
-                    )
-
-                    record(
-                        "step_end",
-                        step=key,
-                        ok=bool(ok),
-                        seconds=duration
-                    )
-
-
+                    ok = rp.run_step(key, module, args, OUTPUT_DIR)
+                    steps.append((key, ok, round(time.time() - step_start,
+                                                 1)))
                     if not ok:
                         failed = failed or key
                         if key in _SOFT_STEPS:
@@ -424,25 +230,4 @@ def run(images, stage_paths, finish=None, diagnostics=None):
             "check": _load_json(config.ASSEMBLY_CHECK_PATH),
             "output_dir": OUTPUT_DIR,
         }
-        if finish:
-            _diag_write("finish_start", memory=_memory_snapshot())
-
-            try:
-                finished = finish(result)
-
-            except Exception:
-                import traceback
-
-                _diag_write(
-                    "finish_exception",
-                    traceback=traceback.format_exc(),
-                    memory=_memory_snapshot(),
-                )
-                raise
-
-            _diag_write("run_end", status="ok")
-            return finished
-
-        _diag_write("run_end", status="ok")
-
-        return result
+        return finish(result) if finish else result
