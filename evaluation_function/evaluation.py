@@ -19,17 +19,20 @@ EduVision — ocena montażu przekładni ze zdjęć studenta.
 Wynik: is_correct = wszystkie etapy ZALICZONE; feedback (Markdown) — ocena,
 powody, części, połączenia, problemy ze zdjęciami, obrazy.
 
-Analiza działa w osobnym, stałym procesie (worker.py --serve): biblioteki
-i model YOLO ładowane są raz, a nie przy każdym zgłoszeniu. Proces jest
-restartowany, gdy jego pamięć przekroczy próg, po N zadaniach, po
-przekroczeniu czasu albo po awarii — brak pamięci lub przekroczenie czasu
-kończy się komunikatem dla studenta zamiast błędu serwera.
+Analiza działa w osobnym procesie (worker.py), nowym dla każdego
+zgłoszenia: pamięć wraca do systemu po każdej analizie, a brak pamięci lub
+przekroczenie czasu kończy się komunikatem dla studenta zamiast błędu
+serwera. Opcjonalnie (EDUVISION_WORKER_REUSE=1) proces zostaje między
+zgłoszeniami (worker.py --serve, biblioteki i model ładowane raz; ~10-15 s
+szybciej) — wyłączone domyślnie, bo na AWS Lambda taki proces potrafił się
+przerwać (SIGABRT); po awarii zadanie jest powtarzane w procesie
+jednorazowym.
 
 Zmienne środowiskowe:
     EDUVISION_WORK_DIR        katalog na zadania (domyślnie <temp>/eduvision)
     EDUVISION_TIME_LIMIT_S    limit czasu jednej analizy (domyślnie 600 s)
-    EDUVISION_PRESTART        "1" — proces analizy startuje razem z serwerem
-    EDUVISION_WORKER_REUSE    "0" — nowy proces na każde zgłoszenie
+    EDUVISION_WORKER_REUSE    "1" — proces stały między zgłoszeniami
+    EDUVISION_PRESTART        "1" — proces stały startuje razem z serwerem
     EDUVISION_WORKER_MAX_MB   próg pamięci restartu (domyślnie 3000)
     EDUVISION_WORKER_MAX_JOBS restart po tylu zadaniach (domyślnie 20)
     EDUVISION_SUBPROCESS      "0" — analiza w procesie serwera (diagnostyka)
@@ -129,6 +132,7 @@ class _Worker:
             text=True, encoding="utf-8", errors="replace", bufsize=1,
             **options)
         self.lines = queue.Queue()
+        self.pid = None                 # PID właściwego procesu (@@READY)
         threading.Thread(target=self._read, daemon=True).start()
         _log(f"worker process started (pid {self.proc.pid})")
 
@@ -141,11 +145,16 @@ class _Worker:
         return self.proc.poll() is None
 
     def kill(self):
+        """Zakończenie procesu i usunięcie jego katalogu roboczego."""
         try:
             self.proc.kill()
             self.proc.wait(timeout=10)
         except (OSError, subprocess.TimeoutExpired):
             pass
+        # PID z @@READY (na Windows python.exe z venv to pośrednik o innym
+        # PID niż właściwy proces).
+        shutil.rmtree(_jobs_dir() / f"worker_{self.pid or self.proc.pid}",
+                      ignore_errors=True)
 
     def run(self, job_dir, limit):
         """-> (status "done"/"timeout"/"exited", dane, log)."""
@@ -170,7 +179,9 @@ class _Worker:
                 return "exited", {"return_code": self.proc.returncode}, log
             if line.startswith("@@JOB_DONE "):
                 return "done", json.loads(line[len("@@JOB_DONE "):]), log
-            if line != "@@READY":
+            if line.startswith("@@READY"):
+                self.pid = int(line.split()[1])
+            else:
                 log.append(line)
 
 
@@ -180,7 +191,10 @@ _WORKER_LOCK = threading.Lock()
 
 def _get_worker():
     global _WORKER
-    if _WORKER is None or not _WORKER.alive():
+    if _WORKER is not None and not _WORKER.alive():
+        _WORKER.kill()                  # sprzątnięcie po martwym procesie
+        _WORKER = None
+    if _WORKER is None:
         _WORKER = _Worker()
     return _WORKER
 
@@ -196,10 +210,8 @@ def _run_in_worker(job_dir, limit):
                 try:
                     worker.proc.wait(timeout=30)
                 except subprocess.TimeoutExpired:
-                    worker.kill()
-            # Katalog roboczy zakończonego procesu (zdjęcia, wyniki).
-            shutil.rmtree(_jobs_dir() / f"worker_{worker.proc.pid}",
-                          ignore_errors=True)
+                    pass
+            worker.kill()
             _WORKER = None
             # Następny proces ładuje biblioteki już teraz, a nie przy
             # kolejnym zgłoszeniu.
@@ -235,14 +247,41 @@ def _run_once(job_dir, limit):
             proc.stdout.decode("utf-8", errors="replace"))
 
 
+_REUSE_FAILED = False   # stały proces padł — dalej tylko procesy jednorazowe
+
+
+def _reuse_enabled():
+    """Proces stały tylko na życzenie (EDUVISION_WORKER_REUSE=1): na AWS
+    Lambda proces czekający między wywołaniami potrafił się przerwać
+    (SIGABRT) po odmrożeniu kontenera."""
+    return os.environ.get("EDUVISION_WORKER_REUSE", "0") == "1"
+
+
 def _run_in_subprocess(job_dir, images, stage_paths, problems, params):
+    global _REUSE_FAILED, _WORKER
     _write_job(job_dir, images, stage_paths, problems, params)
     limit = float(os.environ.get("EDUVISION_TIME_LIMIT_S", "600"))
     started = time.time()
-    if os.environ.get("EDUVISION_WORKER_REUSE", "1") == "0":
+    if not _reuse_enabled() or _REUSE_FAILED:
         stats, log = _run_once(job_dir, limit)
     else:
         stats, log = _run_in_worker(job_dir, limit)
+        if stats.get("worker") == "exited":
+            # Awaria stałego procesu (np. SIGABRT): to samo zadanie jeszcze
+            # raz w nowym procesie jednorazowym, a kolejne zgłoszenia już
+            # bez procesu stałego.
+            _log(f"worker process failed (return code "
+                 f"{stats.get('return_code')}); retrying in a one-shot "
+                 f"process and disabling worker reuse:\n{log[-3000:]}")
+            _REUSE_FAILED = True
+            with _WORKER_LOCK:
+                if _WORKER is not None:
+                    _WORKER.kill()
+                    _WORKER = None
+            remaining = max(limit - (time.time() - started), 1)
+            failed = {f"worker_failure_{k}": v for k, v in stats.items()}
+            stats, log = _run_once(job_dir, remaining)
+            stats.update(failed)
     stats["process_seconds"] = round(time.time() - started, 1)
     stats["limit_s"] = limit
 
@@ -256,7 +295,7 @@ def _run_in_subprocess(job_dir, images, stage_paths, problems, params):
     return result, stats, log
 
 
-if os.environ.get("EDUVISION_PRESTART") == "1":
+if os.environ.get("EDUVISION_PRESTART") == "1" and _reuse_enabled():
     # Proces analizy ładuje biblioteki od razu przy starcie serwera.
     _WORKER = _Worker()
 

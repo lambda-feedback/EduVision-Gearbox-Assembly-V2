@@ -58,14 +58,11 @@ ENV EDUVISION_WORKERS=0 \
     GEARBOX_IMAGE_THREADS=2 \
     EDUVISION_TIME_LIMIT_S=270
 
-# Analysis process kept loaded between requests (torch / YOLO loaded once),
-# started together with the server; restarted when its memory exceeds
-# EDUVISION_WORKER_MAX_MB (Lambda has 4 GB; one analysis adds ~0.5 GB
-# on top of ~1.8 GB), after EDUVISION_WORKER_MAX_JOBS requests, or after a
-# timeout / crash.
-ENV EDUVISION_PRESTART=1 \
-    EDUVISION_WORKER_MAX_MB=2800 \
-    EDUVISION_WORKER_MAX_JOBS=20
+# Every request is analysed in a fresh process (safest: memory is returned
+# after each request). EDUVISION_WORKER_REUSE=1 would keep the process
+# loaded between requests (~10-15 s faster), but on AWS Lambda it was seen
+# to abort (SIGABRT) after the container was frozen between invocations.
+ENV EDUVISION_WORKER_REUSE=0
 
 # Function startup configuration. AWS Lambda timeout is 300 s:
 # EDUVISION_TIME_LIMIT_S (270) < FUNCTION_WORKER_SEND_TIMEOUT (285) < 300.

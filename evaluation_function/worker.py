@@ -9,7 +9,7 @@ Tryb --serve: biblioteki (torch, ultralytics, open3d) i model YOLO są
 ładowane raz, a proces czeka na kolejne zadania — oszczędza ~10-15 s na
 zgłoszeniu. Protokół (stdin/stdout, linia tekstu):
     -> <katalog zadania>
-    <- @@READY                           po załadowaniu bibliotek (raz)
+    <- @@READY <pid>                     po załadowaniu bibliotek (raz)
     <- @@JOB_DONE {"status", "rss_mb", "jobs", "restart"}
 Po zadaniu, gdy pamięć procesu przekroczy EDUVISION_WORKER_MAX_MB albo
 wykona on EDUVISION_WORKER_MAX_JOBS zadań, proces kończy się ("restart":
@@ -155,7 +155,7 @@ def serve():
         print(f"[eduvision] worker ready in "
               f"{time.time() - PROCESS_START:.1f} s",
               file=sys.stderr, flush=True)
-        print("@@READY", flush=True)
+        print(f"@@READY {os.getpid()}", flush=True)
         jobs = 0
         for line in sys.stdin:          # koniec stdin = serwer zakończony
             job_dir = Path(line.strip())
