@@ -424,14 +424,27 @@ def bind_roles(roles, relations, parts, driven_ids):
         cls = role.split("#")[0]
         options.append([p["id"] for p in parts if p["class_name"] == cls]
                        + [None])
+    # Wynik relacji zależy tylko od części przypisanych do jej ról — liczony
+    # raz dla każdego układu tych części (kombinacji przypisań są dziesiątki
+    # tysięcy, a geometria relacji jest kosztowna).
+    relation_roles = [parse_relation(r)[1] for r in relations]
+    cache = {}
+
+    def relation_result(i, binding):
+        key = (i, tuple(binding.get(r) for r in relation_roles[i]))
+        if key not in cache:
+            cache[key] = evaluate_relation(relations[i], binding, by_id,
+                                           driven_ids)
+        return cache[key]
+
     best = None
     for combo in itertools.product(*options):
         used = [c for c in combo if c is not None]
         if len(used) != len(set(used)):
             continue
         binding = dict(zip(roles, combo))
-        results = [evaluate_relation(r, binding, by_id, driven_ids)
-                   for r in relations]
+        results = [relation_result(i, binding)
+                   for i in range(len(relations))]
         # Pół punktu za zazębienie istniejące, ale inną sekcją — wtedy
         # raport wskaże właściwe koło i powód ("inną sekcją").
         score = (sum(r["result"] == OK for r in results)
@@ -440,7 +453,7 @@ def bind_roles(roles, relations, parts, driven_ids):
                  len(used))
         if best is None or score > best[0]:
             best = (score, binding, results)
-    return best[1], best[2]
+    return best[1], [dict(r) for r in best[2]]
 
 
 def evaluate_assembly(spec, inventory, uncertain, uncertain_groups, parts,

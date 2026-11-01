@@ -56,14 +56,20 @@ ENV EDUVISION_WORK_DIR=/tmp/eduvision \
 # message instead of a server error.
 ENV EDUVISION_WORKERS=0 \
     GEARBOX_IMAGE_THREADS=2 \
-    EDUVISION_TIME_LIMIT_S=85
+    EDUVISION_TIME_LIMIT_S=270
 
-# Function startup configuration.
+# Function startup configuration. AWS Lambda timeout is 300 s:
+# EDUVISION_TIME_LIMIT_S (270) < FUNCTION_WORKER_SEND_TIMEOUT (285) < 300.
+# The server process imports only lf_toolkit (heavy libraries are loaded in
+# the per-request worker process), so it starts in ~2 s — well within the
+# 15 s INIT / start timeouts.
 ENV FUNCTION_COMMAND="python" \
     FUNCTION_ARGS="-m,evaluation_function.main" \
     FUNCTION_INTERFACE="rpc" \
     FUNCTION_RPC_TRANSPORT="stdio" \
-    FUNCTION_WORKER_SEND_TIMEOUT="90s"
+    FUNCTION_WORKER_SEND_TIMEOUT="285s" \
+    FUNCTION_WORKER_START_TIMEOUT="15s" \
+    FUNCTION_WORKER_STOP_TIMEOUT="5s"
 
 # Enable temporarily when investigating cold starts.
 # Remove or override in production after profiling.
