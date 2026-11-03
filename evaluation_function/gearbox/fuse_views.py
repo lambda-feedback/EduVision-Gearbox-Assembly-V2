@@ -821,17 +821,19 @@ def align_shaft(group, core):
     p0, d0 = group_line(core)
     best = _align_from(group, p0, d0)
     tilt = math.degrees(math.asin(min(1.0, abs(float(d0[2])))))
-    if tilt <= SHAFT_LEVEL_START_MAX_DEG:
-        level = np.array([d0[0], d0[1], 0.0])
-        level /= np.linalg.norm(level)
-        # Swobodnie ze startu poziomego (omija minimum z pochyloną osią).
-        if tilt > 0.5:
-            free = _align_from(group, p0, level)
-            if free["cost"] < best["cost"]:
-                best = free
-        constrained = _align_from(group, p0, level, level=True)
-        if constrained["cost"] <= best["cost"] * SHAFT_LEVEL_MAX_COST_RATIO:
-            best = constrained
+    if tilt > SHAFT_LEVEL_START_MAX_DEG:
+        return best
+    level = np.array([d0[0], d0[1], 0.0])
+    level /= np.linalg.norm(level)
+    constrained = _align_from(group, p0, level, level=True)
+    if constrained["cost"] <= best["cost"] * SHAFT_LEVEL_MAX_COST_RATIO:
+        return constrained
+    # Oś pozioma odrzucona: swobodnie ze startu poziomego (omija minimum
+    # z pochyloną osią) — tylko wtedy, bo każde dopasowanie jest kosztowne.
+    if tilt > 0.5:
+        free = _align_from(group, p0, level)
+        if free["cost"] < best["cost"]:
+            best = free
     return best
 
 
@@ -844,10 +846,13 @@ def _align_from(group, p0, d0, level=False):
     theta0, psi0 = angles_from_axis(d0)
     s0 = [float((c - p0) @ d0) for c in centers]
 
+    angles = 1 if level else 2
+
     def unpack(x):
-        d = axis_from_angles(math.pi / 2 if level else x[0], x[1])
-        line_point = p0 + x[2] * e1 + x[3] * e2
-        return d, line_point, x[4:]
+        d = axis_from_angles(math.pi / 2, x[0]) if level \
+            else axis_from_angles(x[0], x[1])
+        line_point = p0 + x[angles] * e1 + x[angles + 1] * e2
+        return d, line_point, x[angles + 2:]
 
     def poses(x):
         d, line_point, s = unpack(x)
@@ -858,12 +863,13 @@ def _align_from(group, p0, d0, level=False):
         return sum(p["_problem"].evaluate(c, n)[0]
                    for p, (c, n) in zip(group, poses(x)))
 
-    x0 = np.concatenate([[theta0, psi0, 0.0, 0.0], s0])
+    x0 = np.concatenate([[psi0] if level else [theta0, psi0],
+                         [0.0, 0.0], s0])
     result = minimize(
         cost, x0, method="Powell",
         options={"maxfev": PART_FIT_MAX_EVALS * len(group), "xtol": 1e-3,
                  "ftol": 1e-4,
-                 "direc": np.diag([0.05, 0.05, 0.5, 0.5]
+                 "direc": np.diag([0.05] * angles + [0.5, 0.5]
                                   + [0.5] * len(group))},
     )
     d, line_point, _ = unpack(result.x)
