@@ -88,6 +88,9 @@ def gpu_info():
     if available:
         info["gpu_name"] = torch.cuda.get_device_name(0)
         info["gpu_peak_mb"] = round(torch.cuda.max_memory_allocated() / 2**20)
+    detect_parts = sys.modules.get("detect_parts")
+    if detect_parts is not None:
+        info["yolo_timings"] = detect_parts.YOLO_TIMINGS
     return info
 
 

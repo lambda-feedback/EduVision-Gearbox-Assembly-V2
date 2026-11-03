@@ -38,6 +38,41 @@ def get_image_files(folder: Path):
     )
 
 
+class _KeptDetector(Detector):
+    """Detektor, którego nigdy nie niszczymy: zwolnienie w pupil_apriltags
+    (apriltag_detector_destroy w __del__) potrafi zakończyć proces błędem
+    SIGSEGV — na serwerze Cloud Run po poprawnej detekcji. Pamięć wraca do
+    systemu wraz z końcem procesu."""
+
+    def __del__(self):
+        pass
+
+
+_DETECTORS = None
+
+
+def get_detectors():
+    """Detektory (quad_decimate, detector), tworzone raz na proces — bez
+    niszczenia każde uruchomienie main() zostawiałoby nowe wątki."""
+    global _DETECTORS
+    if _DETECTORS is None:
+        _DETECTORS = [
+            (
+                quad_decimate,
+                _KeptDetector(
+                    families=APRILTAG_FAMILY,
+                    # Wątki dzielą pracę nad jednym zdjęciem; wynik detekcji
+                    # nie zależy od ich liczby.
+                    nthreads=CPU_COUNT,
+                    quad_decimate=quad_decimate,
+                    refine_edges=1,
+                ),
+            )
+            for quad_decimate in APRILTAG_QUAD_DECIMATE_STEPS
+        ]
+    return _DETECTORS
+
+
 def detect_with_fallback(detectors, gray):
     """
     Próbuje kolejnych wartości quad_decimate, aż znajdzie znacznik
@@ -67,20 +102,7 @@ def main():
         for old_file in get_image_files(folder):
             old_file.unlink()
 
-    detectors = [
-        (
-            quad_decimate,
-            Detector(
-                families=APRILTAG_FAMILY,
-                # Wątki dzielą pracę nad jednym zdjęciem; wynik detekcji
-                # nie zależy od ich liczby.
-                nthreads=CPU_COUNT,
-                quad_decimate=quad_decimate,
-                refine_edges=1,
-            ),
-        )
-        for quad_decimate in APRILTAG_QUAD_DECIMATE_STEPS
-    ]
+    detectors = get_detectors()
 
     image_files = get_image_files(INPUT_DIR)
 

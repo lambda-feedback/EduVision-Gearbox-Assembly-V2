@@ -27,12 +27,20 @@ import json
 import math
 import shutil
 import sys
+import time
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
 
-from config import (
+_IMPORT_START = time.time()
+from ultralytics import YOLO  # noqa: E402
+
+# Czasy etapu [s] (sekcja debug na serwerze): import biblioteki, wczytanie
+# modelu, predykcja każdego zdjęcia (pierwsza zawiera start GPU).
+YOLO_TIMINGS = {"import_s": round(time.time() - _IMPORT_START, 1),
+                "load_s": 0.0, "predict_s": []}
+
+from config import (  # noqa: E402
     MODEL_PATH,
     INPUT_DIR,
     ACCEPTED_DIR,
@@ -518,7 +526,9 @@ def load_model():
     procesie — np. serwer — używają go ponownie)."""
     global _MODEL
     if _MODEL is None:
+        started = time.time()
         _MODEL = YOLO(str(MODEL_PATH))
+        YOLO_TIMINGS["load_s"] = round(time.time() - started, 1)
     return _MODEL
 
 
@@ -575,6 +585,7 @@ def main():
         camera = cameras.get(image_path.name)
 
         # retina_masks=True: maski w pełnej rozdzielczości zdjęcia.
+        predict_start = time.time()
         result = model.predict(
             source=image,
             conf=CONFIDENCE_THRESHOLD,
@@ -583,6 +594,7 @@ def main():
             retina_masks=True,
             verbose=False,
         )[0]
+        YOLO_TIMINGS["predict_s"].append(round(time.time() - predict_start, 1))
 
         detections, masks, rejected = [], [], []
         if result.boxes is not None and result.masks is not None:
