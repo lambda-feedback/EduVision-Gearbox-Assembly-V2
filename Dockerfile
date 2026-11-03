@@ -44,7 +44,7 @@ COPY evaluation_function ./evaluation_function
 # Precompile Python files to reduce compilation overhead during cold starts.
 RUN python -m compileall -q /app/evaluation_function
 
-# AWS Lambda writable directories.
+# Writable scratch directories (/tmp is an in-memory filesystem on Cloud Run).
 ENV EDUVISION_WORK_DIR=/tmp/eduvision \
     YOLO_CONFIG_DIR=/tmp/Ultralytics \
     MPLCONFIGDIR=/tmp/matplotlib \
@@ -60,15 +60,17 @@ ENV EDUVISION_WORKERS=0 \
 
 # Every request is analysed in a fresh process (safest: memory is returned
 # after each request). EDUVISION_WORKER_REUSE=1 would keep the process
-# loaded between requests (~10-15 s faster), but on AWS Lambda it was seen
-# to abort (SIGABRT) after the container was frozen between invocations.
+# loaded between requests (~10-15 s faster). It was seen to abort (SIGABRT)
+# on AWS Lambda after the container was frozen between invocations; Cloud Run
+# also throttles CPU between requests by default, so test before enabling.
 ENV EDUVISION_WORKER_REUSE=0
 
-# Function startup configuration. AWS Lambda timeout is 300 s:
+# Function startup configuration. Cloud Run request timeout should be set to
+# at least 300 s (set in the console):
 # EDUVISION_TIME_LIMIT_S (270) < FUNCTION_WORKER_SEND_TIMEOUT (285) < 300.
 # The server process imports only lf_toolkit (heavy libraries are loaded in
 # the per-request worker process), so it starts in ~2 s — well within the
-# 15 s INIT / start timeouts.
+# 15 s worker start timeout.
 ENV FUNCTION_COMMAND="python" \
     FUNCTION_ARGS="-m,evaluation_function.main" \
     FUNCTION_INTERFACE="rpc" \

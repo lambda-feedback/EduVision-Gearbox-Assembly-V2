@@ -59,7 +59,7 @@ jobs:
     uses: lambda-feedback/evaluation-function-workflows/.github/workflows/deploy.yml@main
     with:
       template-repository-name: "lambda-feedback/evaluation-function-boilerplate-python"
-      build-platforms: "aws"
+      build-platforms: "gcp" # Switch this to aws to push to aws
       environment: "staging"
       lfs: false
     secrets:
