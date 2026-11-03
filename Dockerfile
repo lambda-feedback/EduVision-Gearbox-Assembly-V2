@@ -51,10 +51,12 @@ ENV EDUVISION_WORK_DIR=/tmp/eduvision \
     YOLO_OFFLINE=1 \
     YOLO_VERBOSE=False
 
-# Analysis: no worker-process pools (memory x N), a few image threads, and
-# a time limit below FUNCTION_WORKER_SEND_TIMEOUT so the student gets a
-# message instead of a server error.
-ENV EDUVISION_WORKERS=0 \
+# Analysis: worker-process pools for CAD fitting and fusion where the system
+# allows them (Cloud Run; "auto" falls back to a single process otherwise, e.g.
+# AWS Lambda), a few image threads, and a time limit below
+# FUNCTION_WORKER_SEND_TIMEOUT so the student gets a message instead of a
+# server error.
+ENV EDUVISION_WORKERS=auto \
     GEARBOX_IMAGE_THREADS=2 \
     EDUVISION_TIME_LIMIT_S=270
 
