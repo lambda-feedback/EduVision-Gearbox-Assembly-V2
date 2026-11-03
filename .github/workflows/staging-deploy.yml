@@ -60,6 +60,7 @@ jobs:
     with:
       template-repository-name: "lambda-feedback/evaluation-function-boilerplate-python"
       build-platforms: "gcp" # Switch this to aws to push to aws
+      region: "europe-west1" # Comment this out when deploying to AWS
       environment: "staging"
       lfs: false
     secrets:

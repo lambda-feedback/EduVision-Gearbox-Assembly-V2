@@ -43,6 +43,7 @@ jobs:
       template-repository-name: 'lambda-feedback/evaluation-function-boilerplate-python'
       environment: "production"
       build-platforms: "gcp"
+      region: "europe-west1"
       version-bump: ${{ inputs.version-bump }}
       branch: ${{ inputs.branch }}
       run-database-tests: false
