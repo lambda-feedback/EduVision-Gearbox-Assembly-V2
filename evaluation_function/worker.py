@@ -22,6 +22,7 @@ Katalog zadania:
     result.json   wynik: {"is_correct", "items", "stats"}
 """
 
+import faulthandler
 import json
 import os
 import sys
@@ -30,6 +31,9 @@ import traceback
 from pathlib import Path
 
 PROCESS_START = time.time()
+# Stos wywołań po awarii procesu (np. SIGSEGV) — evaluation.py dołącza go do
+# sekcji debug, bo stderr trafia tylko do logów serwera.
+CRASH_LOG = "crash.log"
 MAX_MB = float(os.environ.get("EDUVISION_WORKER_MAX_MB", "3000"))
 MAX_JOBS = int(os.environ.get("EDUVISION_WORKER_MAX_JOBS", "20"))
 
@@ -70,6 +74,20 @@ def cpu_info():
         pass
     if "torch" in sys.modules:
         info["torch_threads"] = sys.modules["torch"].get_num_threads()
+    return info
+
+
+def gpu_info():
+    """Do sekcji debug: czy torch widzi GPU i czy YOLO naprawdę z niego
+    korzystał (szczyt pamięci karty > 0 MB w tym procesie)."""
+    torch = sys.modules.get("torch")
+    if torch is None:
+        return {}
+    available = torch.cuda.is_available()
+    info = {"torch_version": torch.__version__, "cuda_available": available}
+    if available:
+        info["gpu_name"] = torch.cuda.get_device_name(0)
+        info["gpu_peak_mb"] = round(torch.cuda.max_memory_allocated() / 2**20)
     return info
 
 
@@ -136,6 +154,7 @@ def run_job(job_dir, jobs_done=0):
         "memory_after_mb": current_memory_mb(),
         **info,
         **cpu_info(),
+        **gpu_info(),
     }
     (job_dir / "result.json").write_text(
         json.dumps({"is_correct": is_correct, "items": items,
@@ -189,9 +208,18 @@ def main():
         serve()
         return
     job_dir = Path(sys.argv[1])
+    # Przed importem bibliotek, żeby objąć też awarię przy ich ładowaniu.
+    # Plik zostaje otwarty do końca procesu (faulthandler z niego korzysta).
+    crash_log = open(job_dir / CRASH_LOG, "w", encoding="utf-8")
+    faulthandler.enable(file=crash_log, all_threads=True)
     # Przed importem pipeline (czyta katalog roboczy przy imporcie).
     os.environ["EDUVISION_WORK_DIR"] = str(job_dir / "work")
-    run_job(job_dir)
+    try:
+        run_job(job_dir)
+    except Exception:
+        traceback.print_exc(file=crash_log)
+        crash_log.flush()
+        raise
 
 
 if __name__ == "__main__":

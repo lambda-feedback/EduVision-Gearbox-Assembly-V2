@@ -243,8 +243,12 @@ def _run_once(job_dir, limit):
     code = proc.returncode
     status = "ok" if code == 0 else (
         "killed" if code in KILLED_CODES else "error")
-    return ({"return_code": code, "status": status},
-            proc.stdout.decode("utf-8", errors="replace"))
+    log = proc.stdout.decode("utf-8", errors="replace")
+    crash_log = job_dir / "crash.log"   # worker.CRASH_LOG (bez importu worker)
+    if code != 0 and crash_log.is_file():
+        log += "\n--- crash ---\n" + crash_log.read_text(encoding="utf-8",
+                                                         errors="replace")
+    return {"return_code": code, "status": status}, log
 
 
 _REUSE_FAILED = False   # stały proces padł — dalej tylko procesy jednorazowe

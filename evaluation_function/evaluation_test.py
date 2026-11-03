@@ -1,13 +1,15 @@
 import base64
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import cv2
 import numpy as np
 
-from . import feedback, inputs
+from . import evaluation, feedback, inputs
 from .attachments import Attacher
 from .evaluation import Params, evaluation_function
 
@@ -15,6 +17,26 @@ from .evaluation import Params, evaluation_function
 def _jpeg_bytes():
     ok, data = cv2.imencode(".jpg", np.full((40, 60, 3), 128, np.uint8))
     return data.tobytes()
+
+
+class TestWorkerCrash(unittest.TestCase):
+
+    def test_crash_stack_reaches_debug_log(self):
+        """Awaria procesu (SIGSEGV) -> status error i stos wywołań w logu."""
+        script = (
+            "import ctypes, faulthandler, sys\n"
+            "faulthandler.enable(file=open(sys.argv[1] + '/crash.log', 'w'))\n"
+            "ctypes.string_at(0)\n")
+        with tempfile.TemporaryDirectory() as folder:
+            job_dir = Path(folder)
+            with mock.patch.object(
+                    evaluation, "_worker_command",
+                    return_value=([sys.executable, "-c", script, folder], {})):
+                stats, log = evaluation._run_once(job_dir, 60)
+        self.assertEqual(stats["status"], "error")
+        self.assertNotEqual(stats["return_code"], 0)
+        self.assertIn("--- crash ---", log)
+        self.assertIn("string_at", log)
 
 
 class TestInputs(unittest.TestCase):

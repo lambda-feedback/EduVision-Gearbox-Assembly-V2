@@ -16,11 +16,11 @@ typing_extensions = "^4.12.2"
 lf_toolkit = { git = "https://github.com/lambda-feedback/toolkit-python.git", branch = "main", extras = [
     "ipc",
 ] }
-# Analiza GearBox (evaluation_function/gearbox). torch w wersji CPU — serwer
-# nie ma GPU, a wersja CUDA to kilka GB więcej w obrazie ("2.11.0" pasuje
-# też do "2.11.0+cpu" z tego indeksu).
-torch = { version = "2.11.0", source = "pytorch-cpu" }
-torchvision = { version = "0.26.0", source = "pytorch-cpu" }
+# Analiza GearBox (evaluation_function/gearbox). torch w wersji CUDA dla
+# Cloud Run z GPU; bez karty (AWS Lambda) liczy na CPU, ale obraz jest o kilka
+# GB większy ("2.11.0" pasuje też do "2.11.0+cu128" z tego indeksu).
+torch = { version = "2.11.0", source = "pytorch-cu128" }
+torchvision = { version = "0.26.0", source = "pytorch-cu128" }
 ultralytics = ">=8.3"
 opencv-python = ">=4.10"
 open3d = ">=0.18"
@@ -32,8 +32,8 @@ pillow = ">=10.0"
 requests = ">=2.31"
 
 [[tool.poetry.source]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 priority = "explicit"
 
 [tool.poetry.group.dev.dependencies]
