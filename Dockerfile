@@ -51,13 +51,20 @@ ENV EDUVISION_WORK_DIR=/tmp/eduvision \
     YOLO_OFFLINE=1 \
     YOLO_VERBOSE=False
 
-# Analysis: worker-process pools for CAD fitting and fusion where the system
-# allows them (Cloud Run; "auto" falls back to a single process otherwise, e.g.
-# AWS Lambda), a few image threads, and a time limit below
-# FUNCTION_WORKER_SEND_TIMEOUT so the student gets a message instead of a
-# server error.
-ENV EDUVISION_WORKERS=auto \
-    GEARBOX_IMAGE_THREADS=2 \
+# Analysis: worker-process pools for CAD fitting and fusion, and a time limit
+# below FUNCTION_WORKER_SEND_TIMEOUT so the student gets a message instead of
+# a server error.
+#
+# Sized for Cloud Run with 6 vCPU / 16 GiB / 1 L4 running FUNCTION_MAX_PROCS
+# (2) submissions at once: each submission gets a pool of 2 processes and 1
+# image thread, so 2 x (1 analysis + 2 pool) ~= 6 busy processes on 6 vCPU.
+# Memory, not CPU or GPU, is the limit: estimated ~10 GiB at peak for 2
+# concurrent submissions (/tmp is in-memory and counts too). Check
+# memory_after_mb / worker_rss_mb in the debug section before raising
+# FUNCTION_MAX_PROCS. On AWS Lambda (no /dev/shm semaphores) use
+# EDUVISION_WORKERS=auto, which falls back to a single process.
+ENV EDUVISION_WORKERS=2 \
+    GEARBOX_IMAGE_THREADS=1 \
     EDUVISION_TIME_LIMIT_S=270
 
 # Every request is analysed in a fresh process (safest: memory is returned
@@ -70,13 +77,20 @@ ENV EDUVISION_WORKER_REUSE=0
 # Function startup configuration. Cloud Run request timeout should be set to
 # at least 300 s (set in the console):
 # EDUVISION_TIME_LIMIT_S (270) < FUNCTION_WORKER_SEND_TIMEOUT (285) < 300.
-# The server process imports only lf_toolkit (heavy libraries are loaded in
-# the per-request worker process), so it starts in ~2 s — well within the
-# 15 s worker start timeout.
+#
+# File interface: shimmy starts a fresh server process per request (it sets
+# EVAL_IO=FILE, which lf_toolkit picks up) and runs up to FUNCTION_MAX_PROCS
+# of them at once. The rpc/stdio interface serves one request at a time per
+# instance, so concurrent requests queued behind a running analysis and could
+# hit the send timeout. The server imports only lf_toolkit (~2 s); heavy
+# libraries load in the per-request analysis process.
+#
+# Set Cloud Run concurrency equal to FUNCTION_MAX_PROCS (2) so no request
+# waits inside shimmy for a free slot.
 ENV FUNCTION_COMMAND="python" \
     FUNCTION_ARGS="-m,evaluation_function.main" \
-    FUNCTION_INTERFACE="rpc" \
-    FUNCTION_RPC_TRANSPORT="stdio" \
+    FUNCTION_INTERFACE="file" \
+    FUNCTION_MAX_PROCS="2" \
     FUNCTION_WORKER_SEND_TIMEOUT="285s" \
     FUNCTION_WORKER_START_TIMEOUT="15s" \
     FUNCTION_WORKER_STOP_TIMEOUT="5s"
