@@ -28,6 +28,7 @@ Uruchomienie:
 
 import json
 import math
+import pickle
 import sys
 import time
 from collections import Counter, defaultdict
@@ -1007,9 +1008,11 @@ def recheck_class_on_shaft(part, context):
 _CTX = None   # (modele, zdjęcia, kamery, cache masek) w procesie roboczym
 
 
-def _init_worker(images, cameras):
+def _init_worker(data_path):
     global _CTX
     cv2.setNumThreads(1)  # równoległość daje pula procesów
+    with open(data_path, "rb") as file:
+        images, cameras = pickle.load(file)
     _CTX = (load_models(), images, cameras, MaskCache())
 
 
@@ -1107,8 +1110,13 @@ def main():
     # Tyle procesów, ile jest równoległych zadań (części / zdjęcia).
     workers = max(1, min(PARALLEL_WORKERS or CPU_COUNT,
                          max(len(strong), len(images))))
+    # Dane dla procesów przez plik: duże initargs blokowały start puli — nowy
+    # proces ruszał dopiero, gdy poprzedni skończył importy.
+    worker_data = FUSED_PARTS_PATH.with_name("fusion_worker_data.pkl")
+    with open(worker_data, "wb") as file:
+        pickle.dump((images, cameras), file, protocol=pickle.HIGHEST_PROTOCOL)
     pool = ProcessPoolExecutor(max_workers=workers, initializer=_init_worker,
-                               initargs=(images, cameras))
+                               initargs=(worker_data,))
 
     # 1. Pewne części (wiele zdjęć). Numer części = pozycja na liście;
     #    rodzic reguły montażu ma zawsze niższy numer niż część osadzona.
@@ -1230,6 +1238,7 @@ def main():
 
     draw_views(parts, list(images), pool)
     pool.shutdown()
+    worker_data.unlink(missing_ok=True)
     draw_top_view(parts, models)
 
     print(f"Observations: {len(observations)}  from images: {len(images)}")

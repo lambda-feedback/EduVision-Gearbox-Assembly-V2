@@ -128,13 +128,25 @@ def load_models():
 # Poza: parametry optymalizacji <-> transformacja
 # --------------------------------------------------------------------------
 
+_AXIS_HELPER_X = np.array([1.0, 0, 0])
+_AXIS_HELPER_Y = np.array([0, 1.0, 0])
+
+
 def axis_frame(axis):
-    """Macierz obrotu, której trzecia kolumna to oś (pozostałe dowolne)."""
+    """Macierz obrotu, której trzecia kolumna to oś (pozostałe dowolne).
+    Funkcja wywoływana dziesiątki tysięcy razy na analizę, dlatego iloczyn
+    wektorowy jest rozpisany (np.cross zajmował ok. 20% czasu dopasowań)."""
     axis = axis / np.linalg.norm(axis)
-    helper = np.array([1.0, 0, 0]) if abs(axis[0]) < 0.9 else np.array([0, 1.0, 0])
+    helper = _AXIS_HELPER_X if abs(axis[0]) < 0.9 else _AXIS_HELPER_Y
     x = helper - helper.dot(axis) * axis
     x /= np.linalg.norm(x)
-    return np.column_stack([x, np.cross(axis, x), axis])
+    a0, a1, a2 = axis.tolist()
+    x0, x1, x2 = x.tolist()
+    return np.array([
+        [x0, a1 * x2 - a2 * x1, a0],
+        [x1, a2 * x0 - a0 * x2, a1],
+        [x2, a0 * x1 - a1 * x0, a2],
+    ])
 
 
 def params_to_pose(params, K_inv):
@@ -178,8 +190,8 @@ def render_silhouette(model, transform, K, shape):
         return mask.astype(bool)
     projected = points @ K.T
     uv = projected[..., :2] / projected[..., 2:3]
-    for segment_uv in uv:
-        hull = cv2.convexHull(np.round(segment_uv * 16).astype(np.int32))
+    for segment_uv in np.round(uv * 16).astype(np.int32):
+        hull = cv2.convexHull(segment_uv)
         cv2.fillConvexPoly(mask, hull, 1, lineType=cv2.LINE_8, shift=4)
     return mask.view(bool)  # wartości 0/1 — widok bez kopiowania
 
