@@ -89,7 +89,7 @@ To have a more user-friendly experience, you can use [Shimmy](https://github.com
 To run the evaluation function using Shimmy, use the following command:
 
 ```bash
-shimmy -c "python" -a "-m" -a "evaluation_function.main" -i ipc
+shimmy -c "python" -a "-m" -a "evaluation_function.main" -i rpc
 ```
 
 ## Development
