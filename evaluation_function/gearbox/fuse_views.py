@@ -201,7 +201,11 @@ def cluster_is_valid(obs_list):
 
 
 def associate(observations):
-    """Zachłanne łączenie par w grupy (fizyczne części)."""
+    """Zachłanne łączenie par w grupy (fizyczne części). Najpierw pary tej
+    samej klasy YOLO: promienie dwóch podobnych części (np. long_spacer
+    i short_spacer) potrafią przeciąć się przypadkiem bliżej niż promienie
+    tej samej części, co tworzyło części-fantomy. Pary różnych klas z grupy
+    pomyłek są łączone na końcu (YOLO czasem myli klasę)."""
     pairs = []
     for i, a in enumerate(observations):
         for b in observations[i + 1:]:
@@ -211,11 +215,12 @@ def associate(observations):
             if point is None:
                 continue
             gap = max(ray_distance(a, point)[0], ray_distance(b, point)[0])
-            pairs.append((gap, a["index"], b["index"]))
+            pairs.append((a["class_id"] != b["class_id"], gap,
+                          a["index"], b["index"]))
     pairs.sort()
 
     cluster_of = {o["index"]: {o["index"]} for o in observations}
-    for _, i, j in pairs:
+    for _, _, i, j in pairs:
         if cluster_of[i] is cluster_of[j]:
             continue
         merged = cluster_of[i] | cluster_of[j]
