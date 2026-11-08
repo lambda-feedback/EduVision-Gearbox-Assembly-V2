@@ -44,27 +44,22 @@ COPY evaluation_function ./evaluation_function
 # Precompile Python files to reduce compilation overhead during cold starts.
 RUN python -m compileall -q /app/evaluation_function
 
-# Writable scratch directories (/tmp is an in-memory filesystem on Cloud Run).
+# Writable scratch directories (/tmp is the only writable path on AWS Lambda
+# and an in-memory filesystem on Cloud Run).
 ENV EDUVISION_WORK_DIR=/tmp/eduvision \
     YOLO_CONFIG_DIR=/tmp/Ultralytics \
     MPLCONFIGDIR=/tmp/matplotlib \
     YOLO_OFFLINE=1 \
     YOLO_VERBOSE=False
 
-# Analysis: worker-process pools for CAD fitting and fusion, and a time limit
+# Analysis on AWS Lambda: EDUVISION_WORKERS=auto falls back to a single
+# process there (no /dev/shm semaphores), 2 image threads, and a time limit
 # below FUNCTION_WORKER_SEND_TIMEOUT so the student gets a message instead of
 # a server error.
 #
-# Sized for Cloud Run with 6 vCPU / 16 GiB / 1 L4 running FUNCTION_MAX_PROCS
-# (2) submissions at once: each submission gets a pool of 2 processes and 1
-# image thread, so 2 x (1 analysis + 2 pool) ~= 6 busy processes on 6 vCPU.
-# Memory, not CPU or GPU, is the limit: estimated ~10 GiB at peak for 2
-# concurrent submissions (/tmp is in-memory and counts too). Check
-# memory_after_mb / worker_rss_mb in the debug section before raising
-# FUNCTION_MAX_PROCS. On AWS Lambda (no /dev/shm semaphores) use
-# EDUVISION_WORKERS=auto, which falls back to a single process.
-ENV EDUVISION_WORKERS=2 \
-    GEARBOX_IMAGE_THREADS=1 \
+# For Cloud Run with GPU: EDUVISION_WORKERS=2, GEARBOX_IMAGE_THREADS=1.
+ENV EDUVISION_WORKERS=auto \
+    GEARBOX_IMAGE_THREADS=2 \
     EDUVISION_TIME_LIMIT_S=270
 
 # Every request is analysed in a fresh process (safest: memory is returned
@@ -74,23 +69,19 @@ ENV EDUVISION_WORKERS=2 \
 # also throttles CPU between requests by default, so test before enabling.
 ENV EDUVISION_WORKER_REUSE=0
 
-# Function startup configuration. Cloud Run request timeout should be set to
-# at least 300 s (set in the console):
+# Function startup configuration. AWS Lambda timeout is 300 s:
 # EDUVISION_TIME_LIMIT_S (270) < FUNCTION_WORKER_SEND_TIMEOUT (285) < 300.
+# Lambda sends one request at a time to each instance, so the rpc interface
+# is enough. The server imports only lf_toolkit (~2 s); heavy libraries load
+# in the per-request analysis process.
 #
-# File interface: shimmy starts a fresh server process per request (it sets
-# EVAL_IO=FILE, which lf_toolkit picks up) and runs up to FUNCTION_MAX_PROCS
-# of them at once. The rpc/stdio interface serves one request at a time per
-# instance, so concurrent requests queued behind a running analysis and could
-# hit the send timeout. The server imports only lf_toolkit (~2 s); heavy
-# libraries load in the per-request analysis process.
-#
-# Set Cloud Run concurrency equal to FUNCTION_MAX_PROCS (2) so no request
-# waits inside shimmy for a free slot.
+# For Cloud Run with GPU: FUNCTION_INTERFACE="file", FUNCTION_MAX_PROCS="2",
+# no FUNCTION_RPC_TRANSPORT, and Cloud Run concurrency equal to
+# FUNCTION_MAX_PROCS (rpc serves one request at a time per instance).
 ENV FUNCTION_COMMAND="python" \
     FUNCTION_ARGS="-m,evaluation_function.main" \
-    FUNCTION_INTERFACE="file" \
-    FUNCTION_MAX_PROCS="2" \
+    FUNCTION_INTERFACE="rpc" \
+    FUNCTION_RPC_TRANSPORT="stdio" \
     FUNCTION_WORKER_SEND_TIMEOUT="285s" \
     FUNCTION_WORKER_START_TIMEOUT="15s" \
     FUNCTION_WORKER_STOP_TIMEOUT="5s"
