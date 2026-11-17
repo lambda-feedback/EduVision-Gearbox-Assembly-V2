@@ -52,28 +52,38 @@ ENV EDUVISION_WORK_DIR=/tmp/eduvision \
     YOLO_OFFLINE=1 \
     YOLO_VERBOSE=False
 
-# Analysis on AWS Lambda: EDUVISION_WORKERS=auto falls back to a single
-# process there (no /dev/shm semaphores), 2 image threads, and a time limit
-# below FUNCTION_WORKER_SEND_TIMEOUT so the student gets a message instead of
-# a server error.
+# Analysis: CAD fitting and multi-view fusion (the slowest stages with
+# parts) run in a process pool forked at the start of each request
+# (EDUVISION_WORKERS=auto: one process per available CPU, limited by free
+# memory). The pool uses no /dev/shm semaphores, so it works on AWS Lambda
+# too; results are identical to a single process. 2 image threads, and a
+# time limit below FUNCTION_WORKER_SEND_TIMEOUT so the student gets a
+# message instead of a server error.
 #
 # For Cloud Run with GPU: EDUVISION_WORKERS=2, GEARBOX_IMAGE_THREADS=1.
 ENV EDUVISION_WORKERS=auto \
     GEARBOX_IMAGE_THREADS=2 \
     EDUVISION_TIME_LIMIT_S=270
 
-# Every request is analysed in a fresh process (safest: memory is returned
-# after each request). EDUVISION_WORKER_REUSE=1 would keep the process
-# loaded between requests (~10-15 s faster). It was seen to abort (SIGABRT)
-# on AWS Lambda after the container was frozen between invocations; Cloud Run
-# also throttles CPU between requests by default, so test before enabling.
+# Analysis process: with the rpc interface (a long-running server) a zygote
+# (worker.py --zygote) imports the libraries and warms up the YOLO model
+# once, when the server starts; every request is analysed in a fork of it
+# (no ~10-15 s start per request; memory is still returned after each
+# request, because the fork exits). The zygote is idle and single-threaded
+# between requests, so freezing the environment (AWS Lambda) does not
+# affect it; a fork-safety self-test runs at start. If the zygote cannot
+# start, or a fork fails, the request is analysed in a fresh process, as
+# before (EDUVISION_WORKER_MODE=once forces that for every request).
+# EDUVISION_WORKER_REUSE=1 (one long-lived analysis process) is not used: it
+# was seen to abort (SIGABRT) on AWS Lambda after the environment was
+# frozen between invocations.
 ENV EDUVISION_WORKER_REUSE=0
 
 # Function startup configuration. AWS Lambda timeout is 300 s:
 # EDUVISION_TIME_LIMIT_S (270) < FUNCTION_WORKER_SEND_TIMEOUT (285) < 300.
 # Lambda sends one request at a time to each instance, so the rpc interface
 # is enough. The server imports only lf_toolkit (~2 s); heavy libraries load
-# in the per-request analysis process.
+# in the zygote, in the background (the first request waits for it).
 #
 # For Cloud Run with GPU: FUNCTION_INTERFACE="file", FUNCTION_MAX_PROCS="2",
 # no FUNCTION_RPC_TRANSPORT, and Cloud Run concurrency equal to

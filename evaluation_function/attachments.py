@@ -12,6 +12,7 @@ Tryby (params["image_mode"] lub zmienna EDUVISION_IMAGE_MODE):
 
 import base64
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import cv2
@@ -30,6 +31,8 @@ def image_mode(params):
 
 
 def _load(source):
+    if callable(source):            # obraz liczony dopiero tutaj (render)
+        source = source()
     if isinstance(source, np.ndarray):
         return source
     if source is None or not Path(source).is_file():
@@ -60,16 +63,47 @@ class Attacher:
         błąd zapisu)."""
         if self.mode == NONE or self.problem:
             return None
+        text, problem = self._attach(source, caption)
+        if problem:
+            self.problem = problem
+        return text
+
+    def markdown_many(self, sources):
+        """= [markdown(źródło, podpis) for ...] — ten sam wynik i kolejność
+        (także po błędzie zapisu: kolejne obrazy pomijane). Wysyłanie do
+        magazynu to głównie czekanie na sieć, więc od trzech obrazów:
+        pierwszy od razu (sprawdza magazyn), pozostałe równolegle."""
+        sources = list(sources)
+        if self.mode != UPLOAD or len(sources) < 3:
+            return [self.markdown(source, caption)
+                    for source, caption in sources]
+        figures = [self.markdown(*sources[0])]
+        if self.problem:
+            return figures + [None] * (len(sources) - 1)
+        with ThreadPoolExecutor(max_workers=min(4, len(sources) - 1)) as pool:
+            attached = list(pool.map(lambda item: self._attach(*item),
+                                     sources[1:]))
+        for text, problem in attached:
+            if self.problem:
+                figures.append(None)
+                continue
+            if problem:
+                self.problem = problem
+            figures.append(text)
+        return figures
+
+    def _attach(self, source, caption):
+        """-> (Markdown albo None, błąd zapisu albo None); bez zmiany stanu
+        (bezpieczne w wątkach)."""
         image = _load(source)
         if image is None:
-            return None
+            return None, None
         try:
             src = (self._inline(image) if self.mode == INLINE
                    else self._upload(image))
         except Exception as exc:
-            self.problem = str(exc)
-            return None
-        return f"![{caption}]({src})\n\n*{caption}*\n"
+            return None, str(exc)
+        return f"![{caption}]({src})\n\n*{caption}*\n", None
 
     def _inline(self, image):
         ok, data = cv2.imencode(".jpg", _shrink(image, MAX_SIDE_INLINE),
