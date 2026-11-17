@@ -25,6 +25,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # Te same biblioteki systemowe co w Dockerfile: open3d potrzebuje
+      # libEGL, a testy importują etapy GearBox (estimate_part_poses).
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libgomp1 libusb-1.0-0
+
       - name: Install Poetry
         run: pip install poetry
 
