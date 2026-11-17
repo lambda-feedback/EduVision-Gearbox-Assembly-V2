@@ -11,7 +11,6 @@ import re
 import signal
 import sys
 import threading
-import time
 import unittest
 from unittest import mock
 
@@ -56,9 +55,8 @@ def _strip_debug(feedback):
 
 
 def _children(pid):
-    """Żywe procesy potomne pid. Skan /proc/*/stat zamiast
-    /proc/<pid>/task/<pid>/children — ten plik wymaga CONFIG_PROC_CHILDREN,
-    którego nie ma np. na runnerach GitHub Actions."""
+    """Procesy potomne pid: [(pid, stan, cmdline)] — tylko do komunikatu
+    przy błędzie testu."""
     found = []
     for name in os.listdir("/proc"):
         if not name.isdigit():
@@ -67,10 +65,14 @@ def _children(pid):
             with open(f"/proc/{name}/stat") as file:
                 # pid (comm) state ppid ... — comm może zawierać spacje.
                 state, ppid = file.read().rsplit(")", 1)[1].split()[:2]
+            if int(ppid) != pid:
+                continue
+            with open(f"/proc/{name}/cmdline", "rb") as file:
+                cmdline = file.read().replace(b"\0", b" ").decode(
+                    errors="replace").strip()
         except (OSError, IndexError, ValueError):
             continue
-        if int(ppid) == pid and state != "Z":
-            found.append(int(name))
+        found.append((int(name), state, cmdline[:120]))
     return sorted(found)
 
 
@@ -100,24 +102,27 @@ class TestZygote(unittest.TestCase):
                 self.response, "etap_pelny",
                 {"image_mode": "none", "debug": True}).to_dict()
 
-    def _crash_job_child(self, sig):
-        """Wysyła sygnał kopii procesu-matki, gdy tylko ruszy zadanie.
-        Zwraca listę, do której trafia PID kopii po wysłaniu sygnału."""
-        sent = []
+    def _crash_job_child(self, sig, sent):
+        """Patch: 0,5 s po starcie zadania wysyła sygnał jego kopii. PID
+        z protokołu (@@STARTED <pid>), jak przy limicie czasu w serwerze —
+        nie zgadujemy go z listy procesów. Do sent trafia (pid, procesy
+        potomne procesu-matki w tej chwili) — do komunikatu przy błędzie."""
+        original = evaluation._Zygote._next
 
-        def crash():
-            deadline = time.time() + 120
-            while time.time() < deadline:
-                zygote = evaluation._ZYGOTE
-                children = _children(zygote.proc.pid) if zygote else []
-                if children and zygote.ready:
-                    time.sleep(0.5)
-                    os.kill(children[0], sig)
-                    sent.append(children[0])
-                    return
-                time.sleep(0.02)
-        threading.Thread(target=crash, daemon=True).start()
-        return sent
+        def kill(pid):
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass
+
+        def _next(zygote, deadline):
+            line = original(zygote, deadline)
+            if line and line.startswith("@@STARTED ") and not sent:
+                pid = int(line.split()[1])
+                sent.append((pid, _children(zygote.proc.pid)))
+                threading.Timer(0.5, kill, (pid,)).start()
+            return line
+        return mock.patch.object(evaluation._Zygote, "_next", _next)
 
     def test_fork_matches_once_survives_timeout_and_crash(self):
         once = self._evaluate(EDUVISION_WORKER_MODE="once")
@@ -141,11 +146,13 @@ class TestZygote(unittest.TestCase):
         # Awaria kopii (np. SIGABRT po odmrożeniu na AWS Lambda): to samo
         # zadanie w procesie jednorazowym, ten sam wynik; proces-matka
         # zostaje (jedna awaria nie wyłącza trybu fork).
-        sent = self._crash_job_child(signal.SIGABRT)
-        crashed = self._evaluate()
-        self.assertTrue(sent, "test nie znalazł kopii procesu-matki "
-                              "(SIGABRT nie został wysłany)")
-        self.assertIn("zygote_failure_return_code: `-6`", crashed["feedback"])
+        sent = []
+        with self._crash_job_child(signal.SIGABRT, sent):
+            crashed = self._evaluate()
+        self.assertTrue(sent, "zadanie nie wystartowało w procesie-matce")
+        self.assertIn("zygote_failure_return_code: `-6`", crashed["feedback"],
+                      f"SIGABRT do kopii {sent[0][0]}; procesy potomne "
+                      f"procesu-matki: {sent[0][1]}")
         self.assertIn("worker_mode: `once`", crashed["feedback"])
         self.assertEqual(_strip_debug(crashed["feedback"]),
                          _strip_debug(once["feedback"]))
