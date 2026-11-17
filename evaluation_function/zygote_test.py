@@ -56,11 +56,22 @@ def _strip_debug(feedback):
 
 
 def _children(pid):
-    try:
-        with open(f"/proc/{pid}/task/{pid}/children") as file:
-            return [int(p) for p in file.read().split()]
-    except OSError:
-        return []
+    """Żywe procesy potomne pid. Skan /proc/*/stat zamiast
+    /proc/<pid>/task/<pid>/children — ten plik wymaga CONFIG_PROC_CHILDREN,
+    którego nie ma np. na runnerach GitHub Actions."""
+    found = []
+    for name in os.listdir("/proc"):
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/stat") as file:
+                # pid (comm) state ppid ... — comm może zawierać spacje.
+                state, ppid = file.read().rsplit(")", 1)[1].split()[:2]
+        except (OSError, IndexError, ValueError):
+            continue
+        if int(ppid) == pid and state != "Z":
+            found.append(int(name))
+    return sorted(found)
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "fork: Linux only")
@@ -90,7 +101,10 @@ class TestZygote(unittest.TestCase):
                 {"image_mode": "none", "debug": True}).to_dict()
 
     def _crash_job_child(self, sig):
-        """Wysyła sygnał kopii procesu-matki, gdy tylko ruszy zadanie."""
+        """Wysyła sygnał kopii procesu-matki, gdy tylko ruszy zadanie.
+        Zwraca listę, do której trafia PID kopii po wysłaniu sygnału."""
+        sent = []
+
         def crash():
             deadline = time.time() + 120
             while time.time() < deadline:
@@ -99,11 +113,11 @@ class TestZygote(unittest.TestCase):
                 if children and zygote.ready:
                     time.sleep(0.5)
                     os.kill(children[0], sig)
+                    sent.append(children[0])
                     return
                 time.sleep(0.02)
-        thread = threading.Thread(target=crash, daemon=True)
-        thread.start()
-        return thread
+        threading.Thread(target=crash, daemon=True).start()
+        return sent
 
     def test_fork_matches_once_survives_timeout_and_crash(self):
         once = self._evaluate(EDUVISION_WORKER_MODE="once")
@@ -127,8 +141,10 @@ class TestZygote(unittest.TestCase):
         # Awaria kopii (np. SIGABRT po odmrożeniu na AWS Lambda): to samo
         # zadanie w procesie jednorazowym, ten sam wynik; proces-matka
         # zostaje (jedna awaria nie wyłącza trybu fork).
-        self._crash_job_child(signal.SIGABRT)
+        sent = self._crash_job_child(signal.SIGABRT)
         crashed = self._evaluate()
+        self.assertTrue(sent, "test nie znalazł kopii procesu-matki "
+                              "(SIGABRT nie został wysłany)")
         self.assertIn("zygote_failure_return_code: `-6`", crashed["feedback"])
         self.assertIn("worker_mode: `once`", crashed["feedback"])
         self.assertEqual(_strip_debug(crashed["feedback"]),
