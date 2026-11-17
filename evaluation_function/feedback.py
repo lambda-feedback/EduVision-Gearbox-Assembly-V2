@@ -15,6 +15,7 @@ Markdown (nagłówki, listy) działał po złączeniu.
 """
 
 import re
+from functools import partial
 
 PASSED, FAILED, UNKNOWN = "PASSED", "FAILED", "CANNOT ASSESS"
 OK, ERROR = "OK", "ERROR"
@@ -258,23 +259,27 @@ def wanted_images(params, mode):
     return [str(v).lower() for v in value]
 
 
-def image_sources(run, params):
-    """[(źródło: ścieżka lub obraz, podpis)] wg params["images"]."""
+def _render(run, view):
+    """Render 3D złożenia (None, gdy się nie da) — wywoływany dopiero przy
+    dołączaniu obrazu (równolegle z wysyłaniem pozostałych)."""
     from .render import render_assembly
+    try:
+        return render_assembly(run.get("fused"), run.get("check"),
+                               run.get("detections"), view=view)
+    except Exception:
+        return None
 
+
+def image_sources(run, params):
+    """[(źródło: ścieżka, obraz lub funkcja zwracająca obraz, podpis)] wg
+    params["images"]."""
     output = run["output_dir"]
     max_photos = int((params or {}).get("max_photos", 3))
     sources = []
     for kind in wanted_images(params, run["mode"]):
         if kind in RENDER_VIEWS:
             view, caption = RENDER_VIEWS[kind]
-            try:
-                image = render_assembly(run.get("fused"), run.get("check"),
-                                        run.get("detections"), view=view)
-            except Exception:
-                image = None
-            if image is not None:
-                sources.append((image, caption))
+            sources.append((partial(_render, run, view), caption))
         elif kind == "top_view":
             sources.append((output / "fusion_debug" / "top_view.png",
                             "Top view (parts and axes)"))
@@ -314,8 +319,7 @@ def build(run, download_problems, attacher, params):
     if check:
         items.append(("parts", parts_markdown(run)))
 
-    figures = [attacher.markdown(src, caption)
-               for src, caption in image_sources(run, params)]
+    figures = attacher.markdown_many(image_sources(run, params))
     figures = [f for f in figures if f]
     if figures:
         items.append(("images", _block("### Images", "", *figures)))
